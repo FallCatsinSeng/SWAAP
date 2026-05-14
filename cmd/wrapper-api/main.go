@@ -131,6 +131,8 @@ func handleJadwal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	in.SkipBootstrap = true
+
 	res, err := client.GetJadwal(r.Context(), in)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, envelope{OK: false, Error: err.Error()})

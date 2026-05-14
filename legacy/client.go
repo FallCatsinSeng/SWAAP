@@ -19,8 +19,8 @@ import (
 const (
 	defaultBaseURL          = "https://smartone.smart-service.co.id"
 	defaultLoginPath        = "/login_proses.php"
-	defaultWarmupPath       = "/swu.php"
-	fallbackWarmup          = "/smart_school_biasa_2019.php"
+	defaultWarmupPath       = "/my_school_run.php?ada=2"
+	fallbackWarmup          = "/my_school.php?ada=2"
 	defaultReferer          = "/smart_school_biasa_2019.php"
 	defaultMenuPath         = "/my_aplikasi_menu.php"
 	defaultJadwalPath       = "/modul_siswa/jadwal_ujian_siswa/jadwal_ujian_siswa_view.php"
@@ -188,33 +188,48 @@ func (c *Client) Login(ctx context.Context, in LoginInput) (*LoginResult, error)
 	loginPath := withDefaultPath(in.LoginPath, defaultLoginPath)
 	refererPath := withDefaultPath(in.RefererPath, defaultReferer)
 
+	// ── Multi-step session initialization (simulates browser flow) ──
 	if !in.SkipWarmup {
-		warmupCandidates := c.resolveWarmupCandidates(in.WarmupPath)
-		var warmupErrs []string
-		for _, warmupPath := range warmupCandidates {
-			if err := c.warmup(ctx, warmupPath, in.Headers, in.UserAgent, in.AcceptLanguage); err != nil {
-				warmupErrs = append(warmupErrs, fmt.Sprintf("%s: %v", warmupPath, err))
-				continue
-			}
-			if c.currentPHPSESSID() != "" {
-				break
+		// The PHP server requires visiting these pages IN ORDER to populate
+		// $_SESSION variables needed by login_proses.php. Each page uses
+		// session_start() and writes different session vars. Skipping any
+		// step leaves critical session data empty (sm_id_sekolah, smx_db, etc.).
+		warmupChain := []string{
+			"/swu.php",
+			"/my_school.php?ada=2&sof=0&ol=0&hp=1&template=0",
+			"/my_school_ok.php?benarinput=0&ada=2&sof=0&ol=0&hp=1&template=0",
+			"/my_school_run.php?ada=2&sof=0&ol=0&hp=1&template=0",
+			"/smart_school_biasa_2019.php",
+		}
+
+		for _, path := range warmupChain {
+			fmt.Printf("[warmup] GET %s\n", path)
+			if err := c.warmup(ctx, path, in.Headers, in.UserAgent, in.AcceptLanguage); err != nil {
+				fmt.Printf("[warmup]   error: %v\n", err)
 			}
 		}
-		if c.currentPHPSESSID() == "" && len(warmupErrs) == len(warmupCandidates) {
-			return nil, fmt.Errorf("all warmup requests failed: %s", strings.Join(warmupErrs, " | "))
+
+		sessID := c.currentPHPSESSID()
+		fmt.Printf("[warmup] PHPSESSID after chain: %s\n", sessID)
+		if sessID == "" {
+			return nil, fmt.Errorf("session initialization failed: no PHPSESSID obtained after visiting warmup chain")
 		}
 	}
 
+	// ── Build login POST request ──
 	form := url.Values{}
 	form.Set("mac_addr", in.MacAddr)
 	form.Set("username", in.Username)
 	form.Set("password", in.Password)
+	encoded := form.Encode()
+	fmt.Printf("[login] POST %s  body=%s\n", loginPath, encoded)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+loginPath, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+loginPath, strings.NewReader(encoded))
 	if err != nil {
 		return nil, fmt.Errorf("build login request: %w", err)
 	}
 	c.applyHeaders(req, in.Headers, in.UserAgent, in.AcceptLanguage)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", c.baseURL)
 	req.Header.Set("Referer", c.baseURL+refererPath)
 
@@ -229,17 +244,39 @@ func (c *Client) Login(ctx context.Context, in LoginInput) (*LoginResult, error)
 		return nil, fmt.Errorf("read login response: %w", err)
 	}
 
+	finalPath := ""
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalPath = resp.Request.URL.Path
+	}
+
+	bodyStr := string(body)
+	fmt.Printf("[login] status=%d finalPath=%s bodyLen=%d\n", resp.StatusCode, finalPath, len(body))
+	fmt.Printf("[login] body preview: %.500s\n", bodyStr)
+
+	if strings.Contains(bodyStr, "tidakterdaftar") {
+		return nil, fmt.Errorf("login ditolak oleh server (tidakterdaftar). Cek username/password.")
+	}
+	if strings.Contains(bodyStr, "salahdevice") {
+		return nil, fmt.Errorf("login ditolak oleh server (salahdevice). Server menolak device ini.")
+	}
+
 	phpsessid := c.findPHPSESSID(resp)
 	if phpsessid == "" {
-		return nil, errors.New("login response received but PHPSESSID not found; provide full intercept including Set-Cookie from initial page")
+		// Fallback: use the PHPSESSID from the cookie jar
+		phpsessid = c.currentPHPSESSID()
 	}
+	if phpsessid == "" {
+		return nil, errors.New("login response received but PHPSESSID not found")
+	}
+
+	fmt.Printf("[login] SUCCESS phpsessid=%s\n", phpsessid)
 
 	return &LoginResult{
 		StatusCode:   resp.StatusCode,
 		PHPSESSID:    phpsessid,
 		SetCookie:    resp.Header.Values("Set-Cookie"),
 		CookieHeader: "PHPSESSID=" + phpsessid,
-		BodyPreview:  trimPreview(string(body), 700),
+		BodyPreview:  trimPreview(bodyStr, 700),
 	}, nil
 }
 
@@ -283,8 +320,7 @@ func (c *Client) GetJadwal(ctx context.Context, in JadwalInput) (*JadwalResult, 
 	if strings.TrimSpace(in.BaseURL) != "" {
 		c.baseURL = strings.TrimRight(in.BaseURL, "/")
 	}
-	c.seedSessionCookie(in.PHPSESSID)
-
+	c.httpClient.Jar = nil
 	path := withDefaultPath(in.Path, defaultJadwalPath)
 	referer := c.resolveReferer(in.RefererPath, defaultJadwalRef)
 
@@ -297,6 +333,21 @@ func (c *Client) GetJadwal(ctx context.Context, in JadwalInput) (*JadwalResult, 
 		}
 		if bootstrapURL != "" {
 			referer = bootstrapURL
+		}
+	}
+
+	preReq, err := http.NewRequestWithContext(ctx, http.MethodGet, referer, nil)
+	if err == nil {
+		c.applyHeaders(preReq, in.Headers, "", "")
+		c.applyLegacyNavigateHeaders(preReq)
+		c.addSessionCookie(preReq, in.PHPSESSID)
+		if preResp, err := c.httpClient.Do(preReq); err == nil {
+			fmt.Printf("--- Preflight to %s returned %d ---\n", referer, preResp.StatusCode)
+			bodyBytes, _ := io.ReadAll(preResp.Body)
+			fmt.Printf("--- PREFLIGHT HTML SNIPPET ---\n%s\n------------------------\n", string(bodyBytes))
+			preResp.Body.Close()
+		} else {
+			fmt.Printf("--- Preflight ERROR: %v ---\n", err)
 		}
 	}
 
@@ -842,14 +893,14 @@ func (c *Client) seedSessionCookie(phpsessid string) {
 }
 
 func (c *Client) addSessionCookie(req *http.Request, phpsessid string) {
-	phpsessid = strings.TrimSpace(phpsessid)
 	if phpsessid == "" {
 		phpsessid = c.currentPHPSESSID()
 	}
-	if phpsessid == "" {
-		return
+	if phpsessid != "" {
+		req.Header.Set("Cookie", "PHPSESSID="+phpsessid+"; u=0,1")
+	} else {
+		req.Header.Set("Cookie", "u=0,1")
 	}
-	req.AddCookie(&http.Cookie{Name: "PHPSESSID", Value: phpsessid})
 }
 
 func (c *Client) resolveWarmupCandidates(input string) []string {
