@@ -1,0 +1,20 @@
+# ── Stage 1: Build Go Binary ─────────────────────────────────────────────────
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+COPY go.mod ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build \
+      -ldflags="-s -w" \
+      -o wrapper-api \
+      ./cmd/wrapper-api
+
+# ── Stage 2: Distroless (no shell, no package manager) ───────────────────────
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=builder /app/wrapper-api /wrapper-api
+
+EXPOSE 8081
+ENTRYPOINT ["/wrapper-api"]
