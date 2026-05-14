@@ -53,6 +53,8 @@ class LegacyWrapperApp extends StatelessWidget {
   }
 }
 
+enum JadwalFilter { active, ongoing, upcoming }
+
 class JadwalItemModel {
   const JadwalItemModel({
     required this.rowId,
@@ -73,6 +75,66 @@ class JadwalItemModel {
   final String method;
   final String courseName;
   final String lecturer;
+
+  DateTime? get startDateTime {
+    try {
+      final dateParts = date.split('-');
+      if (dateParts.length != 3) return null;
+      final day = int.parse(dateParts[0]);
+      final month = int.parse(dateParts[1]);
+      final year = int.parse(dateParts[2]);
+
+      final timeParts = time.split('-');
+      if (timeParts.isEmpty) return null;
+      final startTimeStr = timeParts[0].trim().replaceAll('.', ':');
+      final startTimeParts = startTimeStr.split(':');
+      if (startTimeParts.length < 2) return null;
+      final hour = int.parse(startTimeParts[0]);
+      final minute = int.parse(startTimeParts[1]);
+
+      return DateTime(year, month, day, hour, minute);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  DateTime? get endDateTime {
+    try {
+      final dateParts = date.split('-');
+      if (dateParts.length != 3) return null;
+      final day = int.parse(dateParts[0]);
+      final month = int.parse(dateParts[1]);
+      final year = int.parse(dateParts[2]);
+
+      final timeParts = time.split('-');
+      if (timeParts.length < 2) return null;
+      final endTimeStr =
+          timeParts[1].trim().split(' ')[0].replaceAll('.', ':');
+      final endTimeParts = endTimeStr.split(':');
+      if (endTimeParts.length < 2) return null;
+      final hour = int.parse(endTimeParts[0]);
+      final minute = int.parse(endTimeParts[1]);
+
+      return DateTime(year, month, day, hour, minute);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get isOngoing {
+    final now = DateTime.now();
+    final start = startDateTime;
+    final end = endDateTime;
+    if (start == null || end == null) return false;
+    return now.isAfter(start) && now.isBefore(end);
+  }
+
+  bool get isUpcoming {
+    final now = DateTime.now();
+    final start = startDateTime;
+    if (start == null) return false;
+    return now.isBefore(start);
+  }
 
   factory JadwalItemModel.fromJson(Map<String, dynamic> json) {
     return JadwalItemModel(
@@ -306,8 +368,48 @@ class _LegacyPortalPageState extends State<LegacyPortalPage> {
   bool _isBusyLogin = false;
   bool _isBusyJadwal = false;
   DateTime? _lastSync;
+  JadwalFilter _currentFilter = JadwalFilter.active;
   List<JadwalItemModel> _jadwalItems = const [];
   List<JadwalCandidateDebugModel> _jadwalCandidates = const [];
+
+  List<JadwalItemModel> get _filteredJadwalItems {
+    final now = DateTime.now();
+
+    // Helper to get only 1 upcoming item per course
+    List<JadwalItemModel> getUniqueUpcoming(List<JadwalItemModel> items) {
+      final upcoming = items.where((e) => e.isUpcoming).toList();
+      final map = <String, JadwalItemModel>{};
+      for (final item in upcoming) {
+        final existing = map[item.courseName];
+        if (existing == null) {
+          map[item.courseName] = item;
+        } else {
+          final currentStart = item.startDateTime;
+          final existingStart = existing.startDateTime;
+          if (currentStart != null && existingStart != null) {
+            if (currentStart.isBefore(existingStart)) {
+              map[item.courseName] = item;
+            }
+          }
+        }
+      }
+      return map.values.toList()
+        ..sort((a, b) => (a.startDateTime ?? now)
+            .compareTo(b.startDateTime ?? now));
+    }
+
+    switch (_currentFilter) {
+      case JadwalFilter.ongoing:
+        return _jadwalItems.where((item) => item.isOngoing).toList();
+      case JadwalFilter.upcoming:
+        return getUniqueUpcoming(_jadwalItems);
+      case JadwalFilter.active:
+      default:
+        final ongoing = _jadwalItems.where((item) => item.isOngoing).toList();
+        final upcoming = getUniqueUpcoming(_jadwalItems);
+        return [...ongoing, ...upcoming];
+    }
+  }
 
   bool get _isBusy => _isBusyLogin || _isBusyJadwal;
   bool get _isLoggedIn => _phpsessid.isNotEmpty;
@@ -968,7 +1070,20 @@ class _LegacyPortalPageState extends State<LegacyPortalPage> {
               ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 18),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _filterChip('Aktif (Sekarang & Akan Datang)', JadwalFilter.active),
+              const SizedBox(width: 8),
+              _filterChip('Sedang Berlangsung', JadwalFilter.ongoing),
+              const SizedBox(width: 8),
+              _filterChip('Akan Datang', JadwalFilter.upcoming),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
         _statusAndLogPanel(),
         if (_jadwalCandidates.isNotEmpty) ...[
           const SizedBox(height: 12),
@@ -977,23 +1092,208 @@ class _LegacyPortalPageState extends State<LegacyPortalPage> {
             onCopy: _copyCandidateHTML,
           ),
         ],
-        const SizedBox(height: 14),
-        if (_jadwalItems.isEmpty)
+        const SizedBox(height: 18),
+        if (_filteredJadwalItems.isEmpty)
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(22),
+            padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFFBF1),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFF1DFB0)),
+              color: Colors.white.withOpacity(0.4),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white.withOpacity(0.6)),
             ),
-            child: const Text(
-              'Belum ada data jadwal. Coba klik "Refresh Jadwal".',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            child: Column(
+              children: [
+                Icon(Icons.calendar_today_outlined,
+                    size: 48, color: Colors.blueGrey.withOpacity(0.5)),
+                const SizedBox(height: 12),
+                Text(
+                  _jadwalItems.isEmpty
+                      ? 'Belum ada data jadwal. Silakan refresh.'
+                      : 'Tidak ada jadwal untuk filter ini.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.blueGrey.withOpacity(0.8),
+                  ),
+                ),
+              ],
             ),
           )
         else
-          ..._jadwalItems.map(_jadwalCard),
+          ..._filteredJadwalItems.map(_modernJadwalCard),
+      ],
+    );
+  }
+
+  Widget _filterChip(String label, JadwalFilter filter) {
+    final isSelected = _currentFilter == filter;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (val) {
+        if (val) setState(() => _currentFilter = filter);
+      },
+      selectedColor: const Color(0xFF0D78B7),
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : const Color(0xFF1D5273),
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      ),
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    );
+  }
+
+  Widget _modernJadwalCard(JadwalItemModel item) {
+    final isOngoing = item.isOngoing;
+    final isUpcoming = item.isUpcoming;
+
+    Color statusColor = const Color(0xFF5A7383);
+    String statusText = 'Selesai';
+    if (isOngoing) {
+      statusColor = const Color(0xFF2E7D32);
+      statusText = 'Sedang Berlangsung';
+    } else if (isUpcoming) {
+      statusColor = const Color(0xFF1976D2);
+      statusText = 'Akan Datang';
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: statusColor.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            Container(width: 6, color: statusColor),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.courseName.isEmpty
+                                ? 'Mata Kuliah'
+                                : item.courseName,
+                            style: GoogleFonts.sora(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF0F4F7B),
+                            ),
+                          ),
+                        ),
+                        _badge(item.method,
+                            item.method.toLowerCase().contains('daring')),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.lecturer,
+                      style: TextStyle(
+                        color: Colors.blueGrey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        _infoIcon(Icons.meeting_room_outlined, item.room),
+                        const SizedBox(width: 16),
+                        _infoIcon(Icons.event_outlined, item.date),
+                        const SizedBox(width: 16),
+                        _infoIcon(Icons.schedule_outlined,
+                            item.time.replaceAll(' WIB', '')),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            statusText,
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          'Pertemuan ${item.meeting}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blueGrey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _badge(String label, bool isDaring) {
+    final color = isDaring ? const Color(0xFFE65100) : const Color(0xFF2E7D32);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _infoIcon(IconData icon, String label) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: Colors.blueGrey.shade400),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.blueGrey.shade700,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ],
     );
   }
@@ -1008,96 +1308,6 @@ class _LegacyPortalPageState extends State<LegacyPortalPage> {
         border: Border.all(color: const Color(0xFFCFE4EF)),
       ),
       child: Text(_log, style: const TextStyle(height: 1.4)),
-    );
-  }
-
-  Widget _jadwalCard(JadwalItemModel item) {
-    final method = item.method.toLowerCase();
-    final accent = method.contains('daring')
-        ? const Color(0xFF7A4E00)
-        : const Color(0xFF0B4E2E);
-    final bg = method.contains('daring')
-        ? const Color(0xFFFFF5E5)
-        : const Color(0xFFEAFBF0);
-
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD7E8F0)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  item.courseName.isEmpty ? 'Mata Kuliah' : item.courseName,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF104A70),
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: bg,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  item.method.isEmpty ? 'N/A' : item.method,
-                  style: TextStyle(color: accent, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            item.lecturer.isEmpty ? '-' : item.lecturer,
-            style: const TextStyle(color: Color(0xFF517082), fontSize: 13),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _metaPill(
-                'Pertemuan ${item.meeting.isEmpty ? '-' : item.meeting}',
-              ),
-              _metaPill(item.date.isEmpty ? '-' : item.date),
-              _metaPill(item.time.isEmpty ? '-' : item.time),
-              _metaPill(item.room.isEmpty ? '-' : item.room),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _metaPill(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FA),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Color(0xFF28536A),
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
-        ),
-      ),
     );
   }
 
