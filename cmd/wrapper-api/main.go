@@ -30,6 +30,8 @@ func main() {
 	mux.HandleFunc("/api/login", handleLogin)
 	mux.HandleFunc("/api/menu", handleMenu)
 	mux.HandleFunc("/api/jadwal", handleJadwal)
+	mux.HandleFunc("/api/presensi", handlePresensi)
+	mux.HandleFunc("/api/attend", handleAttend)
 
 	srv := &http.Server{
 		Addr:              ":" + port,
@@ -134,6 +136,68 @@ func handleJadwal(w http.ResponseWriter, r *http.Request) {
 	in.SkipBootstrap = true
 
 	res, err := client.GetJadwal(r.Context(), in)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, envelope{OK: false, Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, envelope{OK: true, Data: res})
+}
+
+func handlePresensi(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, envelope{OK: false, Error: "method not allowed"})
+		return
+	}
+
+	var in legacy.PresensiInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: "invalid JSON body"})
+		return
+	}
+
+	client, err := legacy.NewClient(in.BaseURL, in.Headers)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: err.Error()})
+		return
+	}
+
+	res, err := client.ListPresensi(r.Context(), in)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, envelope{OK: false, Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, envelope{OK: true, Data: res})
+}
+
+func handleAttend(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, envelope{OK: false, Error: "method not allowed"})
+		return
+	}
+
+	var in legacy.AttendInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: "invalid JSON body"})
+		return
+	}
+
+	client, err := legacy.NewClient(in.BaseURL, in.Headers)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: err.Error()})
+		return
+	}
+
+	res, err := client.SubmitAttend(r.Context(), in)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, envelope{OK: false, Error: err.Error()})
 		return

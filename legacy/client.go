@@ -144,6 +144,51 @@ type fetchHTMLResult struct {
 	ResponseRaw     string
 }
 
+// ── Presensi (Attendance) types ──
+
+type PresensiInput struct {
+	PHPSESSID string            `json:"phpsessid"`
+	BaseURL   string            `json:"base_url"`
+	Headers   map[string]string `json:"headers"`
+}
+
+type PresensiCourse struct {
+	IDKrs           int    `json:"id_krs"`
+	YangKe          int    `json:"yang_ke"`
+	IDJadwal        int    `json:"id_jadwal"`
+	NamaMK          string `json:"nama_mk"`
+	Perkuliahan     string `json:"perkuliahan"`
+	KetPerkuliahan  string `json:"ket_perkuliahan"`
+	Hibrid          int    `json:"hibrid"`
+	Tanggal         string `json:"tanggal"`
+	Jam             string `json:"jam"`
+}
+
+type PresensiResult struct {
+	StatusCode int              `json:"status_code"`
+	Courses    []PresensiCourse `json:"courses"`
+	Message    string           `json:"message,omitempty"`
+}
+
+type AttendInput struct {
+	PHPSESSID      string            `json:"phpsessid"`
+	BaseURL        string            `json:"base_url"`
+	IDKrs          int               `json:"id_krs"`
+	YangKe         int               `json:"yang_ke"`
+	IDJadwal       int               `json:"id_jadwal"`
+	NamaMK         string            `json:"nama_mk"`
+	Perkuliahan    string            `json:"perkuliahan"`
+	KetPerkuliahan string            `json:"ket_perkuliahan"`
+	Hibrid         int               `json:"hibrid"`
+	Headers        map[string]string `json:"headers"`
+}
+
+type AttendResult struct {
+	Success    bool   `json:"success"`
+	Message    string `json:"message"`
+	StatusCode int    `json:"status_code"`
+}
+
 func NewClient(baseURL string, defaultHeaders map[string]string) (*Client, error) {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = defaultBaseURL
@@ -942,6 +987,189 @@ func trimPreview(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+// ── Presensi (Attendance) ──
+
+var (
+	reSoalOnclick      = regexp.MustCompile(`(?is)onclick\s*=\s*["']?soal\((\d+)\)["']?`)
+	reHiddenValByID    = regexp.MustCompile(`(?is)id=["']([^"']+)["']\s+value=["']([^"']*)["']`)
+	reBoxMenuContent   = regexp.MustCompile(`(?is)<div\s+class=["']box_menu["'][^>]*>(.*?)</div>`)
+)
+
+func (c *Client) ListPresensi(ctx context.Context, in PresensiInput) (*PresensiResult, error) {
+	if strings.TrimSpace(in.BaseURL) != "" {
+		c.baseURL = strings.TrimRight(in.BaseURL, "/")
+	}
+	c.seedSessionCookie(in.PHPSESSID)
+
+	// Step 1: GET ujian_online_reguler.php to set session vars (sp_ujian=0, etc.)
+	initURL := c.baseURL + "/modul_siswa/ujian_online_reguler/ujian_online_reguler.php?ujian=0&ekstra=0&param_menu="
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, initURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build presensi init request: %w", err)
+	}
+	c.applyHeaders(req, in.Headers, "", "")
+	c.addSessionCookie(req, in.PHPSESSID)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("presensi init request: %w", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Step 2: GET ujian_online_reguler_view.php to list active courses
+	viewURL := c.baseURL + "/modul_siswa/ujian_online_reguler/ujian_online_reguler_view.php"
+	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, viewURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build presensi view request: %w", err)
+	}
+	c.applyHeaders(req2, in.Headers, "", "")
+	c.addSessionCookie(req2, in.PHPSESSID)
+	resp2, err := c.httpClient.Do(req2)
+	if err != nil {
+		return nil, fmt.Errorf("presensi view request: %w", err)
+	}
+	bodyBytes, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	body := string(bodyBytes)
+
+	fmt.Printf("[presensi] view status=%d bodyLen=%d\n", resp2.StatusCode, len(body))
+
+	courses := parsePresensiHTML(body)
+	msg := ""
+	if len(courses) == 0 {
+		if strings.Contains(body, "Tidak dalam Masa") {
+			msg = "Tidak dalam masa perkuliahan aktif."
+		} else if strings.Contains(body, "Tidak Boleh Presensi") {
+			msg = "Anda tidak diperbolehkan presensi saat ini."
+		} else {
+			msg = "Tidak ada mata kuliah aktif saat ini (cek jadwal jam kuliah)."
+		}
+	}
+
+	return &PresensiResult{
+		StatusCode: resp2.StatusCode,
+		Courses:    courses,
+		Message:    msg,
+	}, nil
+}
+
+func parsePresensiHTML(body string) []PresensiCourse {
+	// Find all soal(ID) onclick handlers — these mark active courses
+	soalMatches := reSoalOnclick.FindAllStringSubmatch(body, -1)
+	if len(soalMatches) == 0 {
+		return nil
+	}
+
+	// Build map of hidden input values by ID
+	hiddenVals := map[string]string{}
+	for _, m := range reHiddenValByID.FindAllStringSubmatch(body, -1) {
+		hiddenVals[m[1]] = m[2]
+	}
+
+	courses := make([]PresensiCourse, 0, len(soalMatches))
+	seen := map[int]bool{}
+
+	for _, m := range soalMatches {
+		idKrs, _ := strconv.Atoi(m[1])
+		if idKrs <= 0 || seen[idKrs] {
+			continue
+		}
+		seen[idKrs] = true
+
+		idStr := strconv.Itoa(idKrs)
+		yangKe, _ := strconv.Atoi(hiddenVals["yangke_"+idStr])
+		idJadwal, _ := strconv.Atoi(hiddenVals["id_jadwal_"+idStr])
+		hibrid, _ := strconv.Atoi(hiddenVals["hibrid_"+idStr])
+
+		courses = append(courses, PresensiCourse{
+			IDKrs:          idKrs,
+			YangKe:         yangKe,
+			IDJadwal:       idJadwal,
+			NamaMK:         cleanHTMLText(hiddenVals["nm_mk_"+idStr]),
+			Perkuliahan:    hiddenVals["perkuliahan_"+idStr],
+			KetPerkuliahan: hiddenVals["ket_perkuliahan_"+idStr],
+			Hibrid:         hibrid,
+		})
+	}
+	return courses
+}
+
+func (c *Client) SubmitAttend(ctx context.Context, in AttendInput) (*AttendResult, error) {
+	if strings.TrimSpace(in.BaseURL) != "" {
+		c.baseURL = strings.TrimRight(in.BaseURL, "/")
+	}
+	c.seedSessionCookie(in.PHPSESSID)
+
+	// Step 1: GET ujian_online_reguler.php to ensure sp_ujian session var is set
+	initURL := c.baseURL + "/modul_siswa/ujian_online_reguler/ujian_online_reguler.php?ujian=0&ekstra=0&param_menu="
+	reqInit, _ := http.NewRequestWithContext(ctx, http.MethodGet, initURL, nil)
+	c.applyHeaders(reqInit, in.Headers, "", "")
+	c.addSessionCookie(reqInit, in.PHPSESSID)
+	respInit, err := c.httpClient.Do(reqInit)
+	if err != nil {
+		return nil, fmt.Errorf("attend init: %w", err)
+	}
+	io.ReadAll(respInit.Body)
+	respInit.Body.Close()
+
+	// Step 2: POST to daftar_soal_ujian.php to set session vars (sid_krs, syangke, etc.)
+	soalURL := c.baseURL + "/modul_siswa/ujian_online_reguler/daftar_soal_ujian.php"
+	form := url.Values{}
+	form.Set("id_krs", strconv.Itoa(in.IDKrs))
+	form.Set("yangke", strconv.Itoa(in.YangKe))
+	form.Set("id_jadwal", strconv.Itoa(in.IDJadwal))
+	form.Set("mk", in.NamaMK)
+	form.Set("perkuliahan", in.Perkuliahan)
+	form.Set("ket_perkuliahan", in.KetPerkuliahan)
+	form.Set("hibrid", strconv.Itoa(in.Hibrid))
+
+	reqSoal, _ := http.NewRequestWithContext(ctx, http.MethodPost, soalURL, strings.NewReader(form.Encode()))
+	reqSoal.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c.applyHeaders(reqSoal, in.Headers, "", "")
+	c.addSessionCookie(reqSoal, in.PHPSESSID)
+	respSoal, err := c.httpClient.Do(reqSoal)
+	if err != nil {
+		return nil, fmt.Errorf("attend set session: %w", err)
+	}
+	io.ReadAll(respSoal.Body)
+	respSoal.Body.Close()
+	fmt.Printf("[attend] daftar_soal status=%d\n", respSoal.StatusCode)
+
+	// Step 3: POST to simpan_jawabanhadir.php to submit attendance
+	hadirURL := c.baseURL + "/modul_siswa/ujian_online_reguler/simpan_jawabanhadir.php"
+	hadirForm := url.Values{}
+	hadirForm.Set("ttd_mhs", "")
+	hadirForm.Set("bs_clear_mhs", "0")
+
+	reqHadir, _ := http.NewRequestWithContext(ctx, http.MethodPost, hadirURL, strings.NewReader(hadirForm.Encode()))
+	reqHadir.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c.applyHeaders(reqHadir, in.Headers, "", "")
+	c.addSessionCookie(reqHadir, in.PHPSESSID)
+	reqHadir.Header.Set("Referer", soalURL)
+
+	respHadir, err := c.httpClient.Do(reqHadir)
+	if err != nil {
+		return nil, fmt.Errorf("attend submit: %w", err)
+	}
+	hadirBody, _ := io.ReadAll(respHadir.Body)
+	respHadir.Body.Close()
+
+	hadirStr := strings.TrimSpace(string(hadirBody))
+	fmt.Printf("[attend] simpan_jawabanhadir status=%d body=%s\n", respHadir.StatusCode, hadirStr)
+
+	success := strings.Contains(strings.ToLower(hadirStr), "presensi kehadiran diterima")
+	msg := hadirStr
+	if success {
+		msg = "Presensi kehadiran diterima untuk " + in.NamaMK
+	}
+
+	return &AttendResult{
+		Success:    success,
+		Message:    msg,
+		StatusCode: respHadir.StatusCode,
+	}, nil
 }
 
 var (
