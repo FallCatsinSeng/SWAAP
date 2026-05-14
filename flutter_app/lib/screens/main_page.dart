@@ -13,7 +13,7 @@ import '../services/cred_store.dart';
 
 /// Returns the appropriate API base URL for the current platform.
 String _apiBase() {
-  if (kIsWeb) return 'http://localhost:8081';
+  if (kIsWeb) return kReleaseMode ? '' : 'http://localhost:8081';
   if (defaultTargetPlatform == TargetPlatform.android) return 'http://10.0.2.2:8081';
   return 'http://127.0.0.1:8081';
 }
@@ -65,7 +65,7 @@ class _MainPageState extends State<MainPage> {
     if (creds!=null) {
       _userCtrl.text=creds['user']!; _passCtrl.text=creds['pass']!;
       if(creds['base']!.isNotEmpty) _baseCtrl.text=creds['base']!;
-      if(creds['api']!.isNotEmpty) _apiCtrl.text=creds['api']!;
+      // Do not load 'api' from creds, always use the default _apiBase()
       setState((){ _initDone=true; _log='Auto login dengan kredensial tersimpan...'; });
       await _doLogin(silent:true);
     } else {
@@ -96,7 +96,7 @@ class _MainPageState extends State<MainPage> {
       final s='${d['phpsessid']??''}';
       setState((){_phpsessid=s;_log=s.isEmpty?'PHPSESSID kosong.':'Login sukses!';});
       if(s.isNotEmpty){
-        await CredStore.save(user:_userCtrl.text.trim(),pass:_passCtrl.text,base:_baseCtrl.text.trim(),api:_apiCtrl.text.trim());
+        await CredStore.save(user:_userCtrl.text.trim(),pass:_passCtrl.text,base:_baseCtrl.text.trim());
         await _fetchJadwal(); await _fetchPresensi();
       }
     } on TimeoutException{setState(()=>_log='Timeout login.');}

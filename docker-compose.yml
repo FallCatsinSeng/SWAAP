@@ -19,12 +19,6 @@ services:
     # Never expose port 8081 to the host — Nginx proxies internally
     expose:
       - "8081"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
 
   # ── Flutter Web Frontend (Nginx) ────────────────────────────────────────────
   frontend:
@@ -49,11 +43,19 @@ services:
     ports:
       - "127.0.0.1:8080:8080"   # Only bind to localhost — host Nginx handles HTTPS
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
+
+  # ── Cloudflare Tunnel ───────────────────────────────────────────────────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=eyJhIjoiMTFlZWRjN2UwZThiOGM4NTA1MDAwYjY4MDZmZjc2ZmIiLCJ0IjoiMzZiZDJjYzEtZTViZC00OTVjLTg2NDEtMjUzZTEyNmIwNDhiIiwicyI6Ik5qZGpaV1V3WXprdE5XWTVZaTAwWXpVNUxXSmpaV1l0T1dJeE5EUTFZemxqWkRjMCJ9
+    networks:
+      - public
 
 networks:
   internal:
-    internal: true   # backend is NOT reachable from the internet
   public:
     driver: bridge

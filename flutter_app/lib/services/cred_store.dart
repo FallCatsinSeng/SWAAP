@@ -9,20 +9,20 @@ class CredStore {
   static const _kUser = 'swaap_user';
   static const _kPass = 'swaap_pass';
   static const _kBase = 'swaap_base';
-  static const _kApi = 'swaap_api';
+  // _kApi intentionally removed — API URL is always determined at runtime
 
   /// Saves credentials to local storage.
   static Future<void> save({
     required String user,
     required String pass,
     required String base,
-    required String api,
   }) async {
     final p = await SharedPreferences.getInstance();
     await p.setString(_kUser, user);
     await p.setString(_kPass, pass);
     await p.setString(_kBase, base);
-    await p.setString(_kApi, api);
+    // Remove stale API URL if it exists from old versions
+    await p.remove('swaap_api');
   }
 
   /// Loads credentials from local storage.
@@ -30,6 +30,8 @@ class CredStore {
   /// Returns `null` if no valid credentials are stored.
   static Future<Map<String, String>?> load() async {
     final p = await SharedPreferences.getInstance();
+    // Migrate: remove stale API URL saved by old versions
+    await p.remove('swaap_api');
     final u = p.getString(_kUser);
     final pw = p.getString(_kPass);
     if (u == null || u.isEmpty || pw == null || pw.isEmpty) return null;
@@ -37,7 +39,6 @@ class CredStore {
       'user': u,
       'pass': pw,
       'base': p.getString(_kBase) ?? '',
-      'api': p.getString(_kApi) ?? '',
     };
   }
 
