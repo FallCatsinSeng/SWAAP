@@ -26,6 +26,7 @@ class _MainPageState extends State<MainPage> {
   final _userCtrl=TextEditingController(), _passCtrl=TextEditingController();
   final _jadwalScroll=ScrollController(), _presensiScroll=ScrollController();
   String _phpsessid='', _log='Memuat...';
+  String _nama='', _nim='';
   bool _busyLogin=false, _busyJadwal=false, _busyPresensi=false, _busyAttend=false, _initDone=false;
   int _tabIndex=0;
   DateTime? _lastSync;
@@ -133,7 +134,14 @@ class _MainPageState extends State<MainPage> {
       if(p['ok']!=true){setState((){_presensiCourses=[];_presensiMsg='Gagal: ${p['error']}';});return;}
       final d=p['data'] as Map<String,dynamic>?;if(d==null)return;
       final c=(d['courses']as List? ?? []).whereType<Map<String,dynamic>>().map(PresensiCourse.fromJson).toList();
-      setState((){_presensiCourses=c;_presensiMsg='${d['message']??''}';});
+      final namaBaru='${d['nama']??''}';
+      final nimBaru='${d['nim']??''}';
+      setState((){
+        _presensiCourses=c;
+        _presensiMsg='${d['message']??''}';
+        if(namaBaru.isNotEmpty) _nama=namaBaru;
+        if(nimBaru.isNotEmpty) _nim=nimBaru;
+      });
     }catch(e){setState((){_presensiCourses=[];_presensiMsg='Error: $e';});}
     finally{setState(()=>_busyPresensi=false);}
   }
@@ -186,15 +194,23 @@ class _MainPageState extends State<MainPage> {
   Widget _dashboard() => Column(children:[_header(),Expanded(child:IndexedStack(index:_tabIndex,children:[_jadwalTab(),_presensiTab()]))]);
 
   Widget _header() {
-    final sid=_phpsessid.length>12?'${_phpsessid.substring(0,8)}...${_phpsessid.substring(_phpsessid.length-4)}':_phpsessid;
+    String infoLine;
+    if (_nama.isNotEmpty) {
+      infoLine = _nim.isNotEmpty ? '$_nama | $_nim' : _nama;
+    } else {
+      final sid = _phpsessid.length > 12
+          ? '${_phpsessid.substring(0,8)}...${_phpsessid.substring(_phpsessid.length-4)}'
+          : _phpsessid;
+      infoLine = 'Session: $sid';
+    }
     return Container(padding:const EdgeInsets.fromLTRB(20,16,20,12),
       decoration:const BoxDecoration(gradient:LinearGradient(colors:[Color(0xFF0E74B2),Color(0xFF1E9EDC)]),
         borderRadius:BorderRadius.only(bottomLeft:Radius.circular(28),bottomRight:Radius.circular(28)),
         boxShadow:[BoxShadow(color:Color(0x1F1A4A66),blurRadius:24,offset:Offset(0,14))]),
       child:Row(children:[
-        Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
           Text('SWAAP',style:GoogleFonts.sora(color:Colors.white,fontSize:22,fontWeight:FontWeight.w700)),
-          const SizedBox(height:2), Text('Session: $sid',style:const TextStyle(color:Color(0xFFD4EDFA),fontSize:12)),
+          const SizedBox(height:2), Text(infoLine,style:const TextStyle(color:Color(0xFFD4EDFA),fontSize:12),overflow:TextOverflow.ellipsis,maxLines:1),
         ])),
         if(_busy)const SizedBox(width:20,height:20,child:CircularProgressIndicator(strokeWidth:2,color:Colors.white)),
         const SizedBox(width:8),
@@ -223,7 +239,7 @@ class _MainPageState extends State<MainPage> {
     return Container(margin:const EdgeInsets.only(bottom:14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),
       boxShadow:[BoxShadow(color:color.withValues(alpha:0.08),blurRadius:16,offset:const Offset(0,8))]),clipBehavior:Clip.antiAlias,
       child:IntrinsicHeight(child:Row(children:[Container(width:5,color:color),
-        Expanded(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        Expanded(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
           Row(children:[Expanded(child:Text(item.courseName,style:GoogleFonts.sora(fontSize:16,fontWeight:FontWeight.w800,color:const Color(0xFF0F4F7B)))),
             _pill(item.method,item.method.toLowerCase().contains('daring')?const Color(0xFFE65100):const Color(0xFF2E7D32))]),
           const SizedBox(height:4),Text(item.lecturer,style:TextStyle(color:Colors.blueGrey.shade600,fontWeight:FontWeight.w500,fontSize:13)),
@@ -256,7 +272,7 @@ class _MainPageState extends State<MainPage> {
       clipBehavior: Clip.antiAlias,
       child: IntrinsicHeight(child: Row(children: [
         Container(width: 5, color: accent),
-        Expanded(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
           Text(c.namaMK, style: GoogleFonts.sora(fontSize: 16, fontWeight: FontWeight.w800, color: const Color(0xFF0F4F7B))),
           const SizedBox(height: 4),
           Text('Pertemuan ke-${c.yangKe}', style: TextStyle(color: Colors.blueGrey.shade600, fontSize: 13)),

@@ -169,6 +169,8 @@ type PresensiResult struct {
 	StatusCode int              `json:"status_code"`
 	Courses    []PresensiCourse `json:"courses"`
 	Message    string           `json:"message,omitempty"`
+	Nama       string           `json:"nama,omitempty"`
+	NIM        string           `json:"nim,omitempty"`
 }
 
 type AttendInput struct {
@@ -1006,7 +1008,7 @@ func (c *Client) ListPresensi(ctx context.Context, in PresensiInput) (*PresensiR
 	}
 	c.seedSessionCookie(in.PHPSESSID)
 
-	// Step 1: GET ujian_online_reguler.php to set session vars (sp_ujian=0, etc.)
+	// Step 1: GET ujian_online_reguler.php to set session vars AND extract student name/NIM
 	initURL := c.baseURL + "/modul_siswa/ujian_online_reguler/ujian_online_reguler.php?ujian=0&ekstra=0&param_menu="
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, initURL, nil)
 	if err != nil {
@@ -1018,8 +1020,12 @@ func (c *Client) ListPresensi(ctx context.Context, in PresensiInput) (*PresensiR
 	if err != nil {
 		return nil, fmt.Errorf("presensi init request: %w", err)
 	}
-	io.ReadAll(resp.Body)
+	initBodyBytes, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	initBodyStr := string(initBodyBytes)
+	fmt.Printf("[presensi] init bodyLen=%d preview=%.300s\n", len(initBodyStr), initBodyStr)
+	nama, nim := parseNamaNIM(initBodyStr)
+	fmt.Printf("[presensi] parseNamaNIM => nama=%q nim=%q\n", nama, nim)
 
 	// Step 2: GET ujian_online_reguler_view.php to list active courses
 	viewURL := c.baseURL + "/modul_siswa/ujian_online_reguler/ujian_online_reguler_view.php"
@@ -1055,7 +1061,33 @@ func (c *Client) ListPresensi(ctx context.Context, in PresensiInput) (*PresensiR
 		StatusCode: resp2.StatusCode,
 		Courses:    courses,
 		Message:    msg,
+		Nama:       nama,
+		NIM:        nim,
 	}, nil
+}
+
+// parseNamaNIM extracts student name and NIM from the presensi HTML.
+// PHP renders smain_judul as: <div class="box" style="...background-color:lightgreen">
+// <center><br>Perkuliahan<Br>Nama Mahasiswa | NIM<br>...
+func parseNamaNIM(body string) (nama, nim string) {
+	// Primary: match "Nama | NIM" inside lightgreen box
+	// Format: ...background-color:lightgreen...><center><br>JENIS<Br>NAMA | NIM<br>
+	patterns := []*regexp.Regexp{
+		// Pattern 1: matches directly from smain_judul structure
+		regexp.MustCompile(`(?is)background-color:\s*lightgreen[^>]*>[\s\S]*?<[Bb][Rr]\s*/?>[\s\S]*?<[Bb][Rr]\s*/?>\s*([^|<\r\n]+?)\s*\|\s*([A-Z0-9]+)\s*<[Bb][Rr]`),
+		// Pattern 2: simpler - find "SomeName | ALPHANUMCODE" anywhere in body
+		regexp.MustCompile(`(?m)>\s*([A-Za-z][^|<\r\n]{3,50}?)\s*\|\s*([A-Z]{2,5}\d{6,12})\s*<`),
+	}
+	for _, re := range patterns {
+		if m := re.FindStringSubmatch(body); len(m) == 3 {
+			n := strings.TrimSpace(m[1])
+			ni := strings.TrimSpace(m[2])
+			if n != "" && ni != "" {
+				return n, ni
+			}
+		}
+	}
+	return
 }
 
 func parsePresensiHTML(body string) []PresensiCourse {
