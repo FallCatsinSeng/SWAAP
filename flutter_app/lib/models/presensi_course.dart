@@ -7,6 +7,7 @@ class PresensiCourse {
   final String namaMK;
   final String perkuliahan;
   final String ketPerkuliahan;
+  final bool hadir;
 
   const PresensiCourse({
     required this.idKrs,
@@ -16,6 +17,7 @@ class PresensiCourse {
     required this.namaMK,
     required this.perkuliahan,
     required this.ketPerkuliahan,
+    this.hadir = false,
   });
 
   factory PresensiCourse.fromJson(Map<String, dynamic> j) => PresensiCourse(
@@ -26,5 +28,6 @@ class PresensiCourse {
         namaMK: '${j['nama_mk'] ?? ''}',
         perkuliahan: '${j['perkuliahan'] ?? ''}',
         ketPerkuliahan: '${j['ket_perkuliahan'] ?? ''}',
+        hadir: (j['hadir'] as bool?) ?? false,
       );
 }

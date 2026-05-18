@@ -162,6 +162,7 @@ type PresensiCourse struct {
 	Hibrid          int    `json:"hibrid"`
 	Tanggal         string `json:"tanggal"`
 	Jam             string `json:"jam"`
+	Hadir           bool   `json:"hadir"`
 }
 
 type PresensiResult struct {
@@ -992,9 +993,11 @@ func trimPreview(s string, max int) string {
 // ── Presensi (Attendance) ──
 
 var (
-	reSoalOnclick      = regexp.MustCompile(`(?is)onclick\s*=\s*["']?soal\((\d+)\)["']?`)
-	reHiddenValByID    = regexp.MustCompile(`(?is)id=["']([^"']+)["']\s+value=["']([^"']*)["']`)
-	reBoxMenuContent   = regexp.MustCompile(`(?is)<div\s+class=["']box_menu["'][^>]*>(.*?)</div>`)
+	reSoalOnclick         = regexp.MustCompile(`(?is)onclick\s*=\s*["']?soal\((\d+)\)["']?`)
+	reHiddenValByID       = regexp.MustCompile(`(?is)id=["']([^"']+)["']\s+value=["']([^"']*)["']`)
+	reBoxMenuContent      = regexp.MustCompile(`(?is)<div\s+class=["']box_menu["'][^>]*>(.*?)</div>`)
+	reBoxMenuSudahAbsen   = regexp.MustCompile(`(?is)<div\s+class=["']box_menu_sudah_absen["'][^>]*>(.*?)</div>`)
+	reHiddenValInBlock    = regexp.MustCompile(`(?is)id=["']([^"']+)["']\s+value=["']([^"']*)["']`)
 )
 
 func (c *Client) ListPresensi(ctx context.Context, in PresensiInput) (*PresensiResult, error) {
@@ -1056,22 +1059,17 @@ func (c *Client) ListPresensi(ctx context.Context, in PresensiInput) (*PresensiR
 }
 
 func parsePresensiHTML(body string) []PresensiCourse {
-	// Find all soal(ID) onclick handlers — these mark active courses
-	soalMatches := reSoalOnclick.FindAllStringSubmatch(body, -1)
-	if len(soalMatches) == 0 {
-		return nil
-	}
-
-	// Build map of hidden input values by ID
+	// Build map of all hidden input values by ID (used for both belum & sudah hadir)
 	hiddenVals := map[string]string{}
 	for _, m := range reHiddenValByID.FindAllStringSubmatch(body, -1) {
 		hiddenVals[m[1]] = m[2]
 	}
 
-	courses := make([]PresensiCourse, 0, len(soalMatches))
+	courses := make([]PresensiCourse, 0)
 	seen := map[int]bool{}
 
-	for _, m := range soalMatches {
+	// Find courses that are NOT yet attended (have onclick="soal(ID)")
+	for _, m := range reSoalOnclick.FindAllStringSubmatch(body, -1) {
 		idKrs, _ := strconv.Atoi(m[1])
 		if idKrs <= 0 || seen[idKrs] {
 			continue
@@ -1091,7 +1089,40 @@ func parsePresensiHTML(body string) []PresensiCourse {
 			Perkuliahan:    hiddenVals["perkuliahan_"+idStr],
 			KetPerkuliahan: hiddenVals["ket_perkuliahan_"+idStr],
 			Hibrid:         hibrid,
+			Hadir:          false,
 		})
+	}
+
+	// Find courses that are ALREADY attended (box_menu_sudah_absen — no onclick soal)
+	// The hidden inputs for these are still present in the page even without the onclick.
+	// We detect them by looking for the sudah_absen div near their hidden inputs.
+	reBlockWithHidden := regexp.MustCompile(`(?is)(<input[^>]+id=["']perkuliahan_(\d+)["'][^>]*>.*?box_menu_sudah_absen)`)
+	for _, m := range reBlockWithHidden.FindAllStringSubmatch(body, -1) {
+		idKrs, _ := strconv.Atoi(m[2])
+		if idKrs <= 0 || seen[idKrs] {
+			continue
+		}
+		seen[idKrs] = true
+
+		idStr := strconv.Itoa(idKrs)
+		yangKe, _ := strconv.Atoi(hiddenVals["yangke_"+idStr])
+		idJadwal, _ := strconv.Atoi(hiddenVals["id_jadwal_"+idStr])
+		hibrid, _ := strconv.Atoi(hiddenVals["hibrid_"+idStr])
+
+		courses = append(courses, PresensiCourse{
+			IDKrs:          idKrs,
+			YangKe:         yangKe,
+			IDJadwal:       idJadwal,
+			NamaMK:         cleanHTMLText(hiddenVals["nm_mk_"+idStr]),
+			Perkuliahan:    hiddenVals["perkuliahan_"+idStr],
+			KetPerkuliahan: hiddenVals["ket_perkuliahan_"+idStr],
+			Hibrid:         hibrid,
+			Hadir:          true,
+		})
+	}
+
+	if len(courses) == 0 {
+		return nil
 	}
 	return courses
 }

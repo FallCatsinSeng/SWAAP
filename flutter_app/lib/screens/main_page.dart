@@ -244,18 +244,58 @@ class _MainPageState extends State<MainPage> {
     ..._presensiCourses.map(_presensiCard),
   ]));
 
-  Widget _presensiCard(PresensiCourse c) => Container(margin:const EdgeInsets.only(bottom:14),
-    decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),boxShadow:[BoxShadow(color:Colors.green.withValues(alpha:0.08),blurRadius:16,offset:const Offset(0,8))]),
-    clipBehavior:Clip.antiAlias,child:IntrinsicHeight(child:Row(children:[Container(width:5,color:const Color(0xFF2E7D32)),
-      Expanded(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        Text(c.namaMK,style:GoogleFonts.sora(fontSize:16,fontWeight:FontWeight.w800,color:const Color(0xFF0F4F7B))),
-        const SizedBox(height:4),Text('Pertemuan ke-${c.yangKe}',style:TextStyle(color:Colors.blueGrey.shade600,fontSize:13)),
-        if(c.ketPerkuliahan.isNotEmpty)...[const SizedBox(height:2),_pill(c.ketPerkuliahan,const Color(0xFF2E7D32))],
-        const SizedBox(height:14),
-        SizedBox(width:double.infinity,child:FilledButton.icon(onPressed:_busyAttend?null:()=>_confirmAttend(c),icon:const Icon(Icons.front_hand),
-          label:Text(_busyAttend?'Memproses...':'Hadir'),style:FilledButton.styleFrom(backgroundColor:const Color(0xFF2E7D32),padding:const EdgeInsets.symmetric(vertical:14),
-            shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))))),
-      ])))])));
+  Widget _presensiCard(PresensiCourse c) {
+    final accent = c.hadir ? const Color(0xFF1565C0) : const Color(0xFF2E7D32);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: accent.withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 8))],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(child: Row(children: [
+        Container(width: 5, color: accent),
+        Expanded(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(c.namaMK, style: GoogleFonts.sora(fontSize: 16, fontWeight: FontWeight.w800, color: const Color(0xFF0F4F7B))),
+          const SizedBox(height: 4),
+          Text('Pertemuan ke-${c.yangKe}', style: TextStyle(color: Colors.blueGrey.shade600, fontSize: 13)),
+          if (c.ketPerkuliahan.isNotEmpty) ...[const SizedBox(height: 2), _pill(c.ketPerkuliahan, accent)],
+          const SizedBox(height: 14),
+          if (c.hadir)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF90CAF9)),
+              ),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                const Icon(Icons.check_circle, color: Color(0xFF1565C0), size: 20),
+                const SizedBox(width: 8),
+                Text('Sudah Absen', style: GoogleFonts.sora(color: const Color(0xFF1565C0), fontWeight: FontWeight.w700, fontSize: 15)),
+              ]),
+            )
+          else
+            SizedBox(width: double.infinity, child: FilledButton.icon(
+              onPressed: _busyAttend ? null : () => _confirmAttend(c),
+              icon: const Icon(Icons.front_hand),
+              label: Text(_busyAttend ? 'Memproses...' : 'Hadir'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF2E7D32),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            )),
+        ]))),
+      ])),
+    );
+  }
+
+
+
+
 
   void _confirmAttend(PresensiCourse c) => showDialog(context:context,builder:(ctx)=>AlertDialog(
     shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(20)),title:const Text('Konfirmasi Presensi'),
