@@ -155,7 +155,12 @@ class _MainPageState extends State<MainPage> {
       final p=jsonDecode(r.body) as Map<String,dynamic>;final d=p['data'] as Map<String,dynamic>?;
       final ok=d?['success']==true; final msg='${d?['message']??p['error']??'Unknown'}';
       if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(msg),backgroundColor:ok?Colors.green.shade700:Colors.red.shade700,behavior:SnackBarBehavior.floating,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))));
-      if(ok) await _fetchPresensi();
+      if(ok){
+        // PHP tidak render kursus sudah-absen di view page, jadi langsung update lokal
+        setState((){
+          _presensiCourses=_presensiCourses.map((x)=>x.idKrs==c.idKrs?x.copyWith(hadir:true):x).toList();
+        });
+      }
     }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Error: $e')));}
     finally{setState(()=>_busyAttend=false);}
   }

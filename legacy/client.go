@@ -1057,6 +1057,20 @@ func (c *Client) ListPresensi(ctx context.Context, in PresensiInput) (*PresensiR
 		}
 	}
 
+	// Check attendance status for each active course by POSTing to daftar_soal_ujian.php
+	// This mirrors the official app flow: clicking a course loads daftar_soal_ujian.php
+	// which shows "Anda Hadir" + box_menu_sudah if already attended.
+	for i, course := range courses {
+		if course.Hadir {
+			continue // already marked
+		}
+		attended := c.checkCourseAttended(ctx, course, in.PHPSESSID, in.Headers)
+		if attended {
+			courses[i].Hadir = true
+			fmt.Printf("[presensi] course %q (id_krs=%d) already attended\n", course.NamaMK, course.IDKrs)
+		}
+	}
+
 	return &PresensiResult{
 		StatusCode: resp2.StatusCode,
 		Courses:    courses,
@@ -1064,6 +1078,38 @@ func (c *Client) ListPresensi(ctx context.Context, in PresensiInput) (*PresensiR
 		Nama:       nama,
 		NIM:        nim,
 	}, nil
+}
+
+// checkCourseAttended POSTs to daftar_soal_ujian.php for a specific course
+// and checks if the response indicates the student has already attended.
+func (c *Client) checkCourseAttended(ctx context.Context, course PresensiCourse, phpsessid string, headers map[string]string) bool {
+	soalURL := c.baseURL + "/modul_siswa/ujian_online_reguler/daftar_soal_ujian.php"
+	form := url.Values{}
+	form.Set("id_krs", strconv.Itoa(course.IDKrs))
+	form.Set("yangke", strconv.Itoa(course.YangKe))
+	form.Set("id_jadwal", strconv.Itoa(course.IDJadwal))
+	form.Set("mk", course.NamaMK)
+	form.Set("perkuliahan", course.Perkuliahan)
+	form.Set("ket_perkuliahan", course.KetPerkuliahan)
+	form.Set("hibrid", strconv.Itoa(course.Hibrid))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, soalURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c.applyHeaders(req, headers, "", "")
+	c.addSessionCookie(req, phpsessid)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false
+	}
+	respBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	bodyStr := string(respBody)
+	return strings.Contains(bodyStr, "Anda Hadir") || strings.Contains(bodyStr, "box_menu_sudah")
 }
 
 // parseNamaNIM extracts student name and NIM from the presensi HTML.
@@ -1196,9 +1242,21 @@ func (c *Client) SubmitAttend(ctx context.Context, in AttendInput) (*AttendResul
 	if err != nil {
 		return nil, fmt.Errorf("attend set session: %w", err)
 	}
-	io.ReadAll(respSoal.Body)
+	soalBody, _ := io.ReadAll(respSoal.Body)
 	respSoal.Body.Close()
-	fmt.Printf("[attend] daftar_soal status=%d\n", respSoal.StatusCode)
+	soalStr := string(soalBody)
+	fmt.Printf("[attend] daftar_soal status=%d bodyLen=%d\n", respSoal.StatusCode, len(soalStr))
+
+	// Check if already attended — the official app shows "Anda Hadir" and "box_menu_sudah"
+	alreadyAttended := strings.Contains(soalStr, "Anda Hadir") || strings.Contains(soalStr, "box_menu_sudah")
+	if alreadyAttended {
+		fmt.Printf("[attend] already attended, skipping simpan_jawabanhadir\n")
+		return &AttendResult{
+			Success:    true,
+			Message:    "Sudah hadir untuk " + in.NamaMK,
+			StatusCode: respSoal.StatusCode,
+		}, nil
+	}
 
 	// Step 3: POST to simpan_jawabanhadir.php to submit attendance
 	hadirURL := c.baseURL + "/modul_siswa/ujian_online_reguler/simpan_jawabanhadir.php"

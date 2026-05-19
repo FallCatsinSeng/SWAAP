@@ -30,4 +30,15 @@ class PresensiCourse {
         ketPerkuliahan: '${j['ket_perkuliahan'] ?? ''}',
         hadir: (j['hadir'] as bool?) ?? false,
       );
+
+  PresensiCourse copyWith({bool? hadir}) => PresensiCourse(
+        idKrs: idKrs,
+        yangKe: yangKe,
+        idJadwal: idJadwal,
+        hibrid: hibrid,
+        namaMK: namaMK,
+        perkuliahan: perkuliahan,
+        ketPerkuliahan: ketPerkuliahan,
+        hadir: hadir ?? this.hadir,
+      );
 }
