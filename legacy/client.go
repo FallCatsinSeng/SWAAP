@@ -1109,7 +1109,10 @@ func (c *Client) checkCourseAttended(ctx context.Context, course PresensiCourse,
 	resp.Body.Close()
 
 	bodyStr := string(respBody)
-	return strings.Contains(bodyStr, "Anda Hadir") || strings.Contains(bodyStr, "box_menu_sudah")
+	// Only match the label ">Anda Hadir<" which appears when the STUDENT has personally
+	// submitted attendance. Do NOT match "box_menu_sudah" from CSS definitions (always present)
+	// or "Presensi hadir oleh Dosen" (lecturer marked, student hasn't clicked yet).
+	return strings.Contains(bodyStr, ">Anda Hadir<")
 }
 
 // parseNamaNIM extracts student name and NIM from the presensi HTML.
@@ -1247,8 +1250,8 @@ func (c *Client) SubmitAttend(ctx context.Context, in AttendInput) (*AttendResul
 	soalStr := string(soalBody)
 	fmt.Printf("[attend] daftar_soal status=%d bodyLen=%d\n", respSoal.StatusCode, len(soalStr))
 
-	// Check if already attended — the official app shows "Anda Hadir" and "box_menu_sudah"
-	alreadyAttended := strings.Contains(soalStr, "Anda Hadir") || strings.Contains(soalStr, "box_menu_sudah")
+	// Check if already attended — the official app shows ">Anda Hadir<" in a label
+	alreadyAttended := strings.Contains(soalStr, ">Anda Hadir<")
 	if alreadyAttended {
 		fmt.Printf("[attend] already attended, skipping simpan_jawabanhadir\n")
 		return &AttendResult{
