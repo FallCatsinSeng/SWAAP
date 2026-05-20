@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:legacy_wrapper_fe/main.dart';
+import 'package:SWAAP/main.dart';
 
 void main() {
   testWidgets('Login screen renders', (WidgetTester tester) async {
