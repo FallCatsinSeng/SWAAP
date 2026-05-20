@@ -1,11 +1,11 @@
 {
-    "name": "legacy_wrapper_fe",
-    "short_name": "legacy_wrapper_fe",
+    "name": "SWAAP",
+    "short_name": "SWAAP",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "SWU Alternatif APP",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
