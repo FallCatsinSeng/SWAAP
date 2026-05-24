@@ -8,7 +8,6 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8081"
-      CORS_ORIGIN: "${CORS_ORIGIN}"
     networks:
       - internal
     # Security hardening
@@ -52,18 +51,11 @@ services:
     restart: unless-stopped
     command: tunnel run
     environment:
-      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
+      - TUNNEL_TOKEN=eyJhIjoiMTFlZWRjN2UwZThiOGM4NTA1MDAwYjY4MDZmZjc2ZmIiLCJ0IjoiMzZiZDJjYzEtZTViZC00OTVjLTg2NDEtMjUzZTEyNmIwNDhiIiwicyI6Ik5qZGpaV1V3WXprdE5XWTVZaTAwWXpVNUxXSmpaV1l0T1dJeE5EUTFZemxqWkRjMCJ9
     networks:
       - public
-      # Joined so the tunnel can reach SWU OSR services by hostname
-      # (e.g. http://swu-osr-nginx:80) without depending on `docker network connect`.
-      - swu_osr_internal
 
 networks:
   internal:
   public:
     driver: bridge
-  # External network owned by the SWU_OSR docker compose project.
-  # Must already exist before this stack starts.
-  swu_osr_internal:
-    external: true
