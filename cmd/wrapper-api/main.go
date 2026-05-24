@@ -213,10 +213,18 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 }
 
 func withCORS(next http.Handler) http.Handler {
+	allowedOrigin := os.Getenv("CORS_ORIGIN")
+	if allowedOrigin == "" {
+		allowedOrigin = "*" // fallback for local development
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		if allowedOrigin != "*" {
+			w.Header().Set("Vary", "Origin")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
