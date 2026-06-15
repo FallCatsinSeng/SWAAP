@@ -285,6 +285,52 @@ class _MainPageState extends State<MainPage> {
     }
   }
 
+  Future<void> _deleteAspirasi(int id) async {
+    setState(() => _busyAspirai = true);
+    try {
+      final result = await _aspirasiService.deleteAspirasi(nim: _nim, aspirasiId: id);
+      if (mounted) {
+        final ok = result['ok'] == true;
+        final msg = ok ? 'Aspirasi berhasil dihapus' : (result['error'] ?? 'Gagal menghapus');
+        final c = SwaapColors.of(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(msg),
+          backgroundColor: ok ? c.green : c.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ));
+        if (ok) await _fetchAspirai();
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _busyAspirai = false);
+    }
+  }
+
+  Future<void> _updateAspirasiStatus(int id, String status, String reply) async {
+    setState(() => _busyAspirai = true);
+    try {
+      final result = await _aspirasiService.updateStatus(nim: _nim, aspirasiId: id, status: status, adminReply: reply);
+      if (mounted) {
+        final ok = result['ok'] == true;
+        final msg = ok ? 'Status berhasil diupdate' : (result['error'] ?? 'Gagal update status');
+        final c = SwaapColors.of(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(msg),
+          backgroundColor: ok ? c.green : c.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ));
+        if (ok) await _fetchAspirai();
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _busyAspirai = false);
+    }
+  }
+
   void _logout() async {
     await CredStore.clear();
     setState(() {
@@ -329,6 +375,8 @@ class _MainPageState extends State<MainPage> {
         nama: _nama,
         onRefresh: _fetchAspirai,
         onSubmit: _submitAspirai,
+        onDelete: _deleteAspirasi,
+        onUpdateStatus: _updateAspirasiStatus,
       ),
     ));
   }
@@ -424,6 +472,8 @@ class _AspirasiPage extends StatelessWidget {
     required String semester,
     required String jurusan,
   }) onSubmit;
+  final Future<void> Function(int) onDelete;
+  final Future<void> Function(int id, String status, String reply) onUpdateStatus;
 
   const _AspirasiPage({
     required this.isDark,
@@ -435,6 +485,8 @@ class _AspirasiPage extends StatelessWidget {
     required this.nama,
     required this.onRefresh,
     required this.onSubmit,
+    required this.onDelete,
+    required this.onUpdateStatus,
   });
 
   @override
@@ -467,6 +519,8 @@ class _AspirasiPage extends StatelessWidget {
                 scrollCtrl: ScrollController(),
                 onRefresh: onRefresh,
                 onSubmit: onSubmit,
+                onDelete: onDelete,
+                onUpdateStatus: onUpdateStatus,
               ),
             ),
           ),

@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../models/aspirasi_model.dart';
 import '../theme/colors.dart';
 import '../widgets/glass_card.dart';
+import '../services/pdf_export.dart';
 
 class AspirasiTab extends StatefulWidget {
   final List<Aspirasi> items;
@@ -20,6 +21,8 @@ class AspirasiTab extends StatefulWidget {
     required String semester,
     required String jurusan,
   }) onSubmit;
+  final Future<void> Function(int) onDelete;
+  final Future<void> Function(int id, String status, String reply) onUpdateStatus;
 
   const AspirasiTab({
     super.key,
@@ -31,6 +34,8 @@ class AspirasiTab extends StatefulWidget {
     required this.scrollCtrl,
     required this.onRefresh,
     required this.onSubmit,
+    required this.onDelete,
+    required this.onUpdateStatus,
   });
 
   @override
@@ -43,6 +48,10 @@ class _AspirasiTabState extends State<AspirasiTab> {
   List<Aspirasi> get _displayItems {
     if (!_showMine) return widget.items;
     return widget.items.where((a) => a.nim == widget.nim || (a.isAnonim && a.nim.isEmpty)).toList();
+  }
+
+  Future<void> _generatePdf() async {
+    await PdfExport.generateAndPrint(_displayItems);
   }
 
   @override
@@ -92,7 +101,7 @@ class _AspirasiTabState extends State<AspirasiTab> {
             style: GoogleFonts.sora(fontSize: 16, fontWeight: FontWeight.w700, color: c.textPrimary),
           ),
         ),
-        if (widget.isAdmin)
+        if (widget.isAdmin) ...[
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
@@ -101,6 +110,13 @@ class _AspirasiTabState extends State<AspirasiTab> {
             ),
             child: Text('Admin', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
           ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: Icon(Icons.print_rounded, color: c.accent, size: 22),
+            onPressed: _generatePdf,
+            tooltip: 'Cetak Laporan',
+          ),
+        ]
       ],
     );
   }
@@ -225,7 +241,7 @@ class _AspirasiTabState extends State<AspirasiTab> {
           Text(a.saran, style: TextStyle(fontSize: 13, color: c.textPrimary, height: 1.4)),
 
           const SizedBox(height: 10),
-          // Timestamp
+          // Timestamp & Actions
           Row(
             children: [
               Icon(Icons.schedule_rounded, size: 12, color: c.textSecondary.withValues(alpha: 0.6)),
@@ -234,8 +250,57 @@ class _AspirasiTabState extends State<AspirasiTab> {
                 _formatDate(a.createdAt),
                 style: TextStyle(fontSize: 10, color: c.textSecondary.withValues(alpha: 0.6)),
               ),
+              const Spacer(),
+              if (a.status == 'pending' && a.nim == widget.nim && !widget.isAdmin)
+                TextButton(
+                  onPressed: () => _confirmDelete(c, a),
+                  style: TextButton.styleFrom(
+                    foregroundColor: c.red,
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Hapus', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                ),
+              if (widget.isAdmin)
+                TextButton(
+                  onPressed: () => _showUpdateStatusSheet(c, a),
+                  style: TextButton.styleFrom(
+                    foregroundColor: c.accent,
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Update Status', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                ),
             ],
           ),
+
+          if (a.adminReply.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: c.green.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: c.green.withValues(alpha: 0.2)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle_rounded, size: 14, color: c.green),
+                      const SizedBox(width: 6),
+                      Text('Tanggapan Admin', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: c.green)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(a.adminReply, style: TextStyle(fontSize: 12, color: c.textPrimary, height: 1.4)),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -561,6 +626,114 @@ class _AspirasiTabState extends State<AspirasiTab> {
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: c.accent, width: 1.5)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       ),
+    );
+  }
+
+  void _confirmDelete(SwaapColors c, Aspirasi a) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.bg,
+        title: Text('Hapus Aspirasi', style: TextStyle(color: c.textPrimary, fontWeight: FontWeight.bold)),
+        content: Text('Apakah Anda yakin ingin menghapus aspirasi ini?', style: TextStyle(color: c.textSecondary)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              widget.onDelete(a.id);
+            },
+            child: Text('Hapus', style: TextStyle(color: c.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showUpdateStatusSheet(SwaapColors c, Aspirasi a) {
+    String selectedStatus = a.status;
+    final replyCtrl = TextEditingController(text: a.adminReply);
+
+    final statuses = ['pending', 'diproses', 'selesai', 'ditolak'];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setSheetState) {
+          final sc = SwaapColors.of(ctx);
+          return Container(
+            margin: EdgeInsets.only(top: MediaQuery.of(ctx).padding.top + 40),
+            decoration: BoxDecoration(
+              color: sc.bg,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: sc.surface, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Update Status', style: GoogleFonts.plusJakartaSans(fontSize: 16, fontWeight: FontWeight.w700, color: sc.textPrimary)),
+                      IconButton(icon: Icon(Icons.close_rounded, color: sc.textSecondary), onPressed: () => Navigator.pop(ctx)),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: MediaQuery.of(ctx).viewInsets.bottom + 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _sheetLabel(sc, 'Status Laporan'),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          decoration: BoxDecoration(color: sc.surface, borderRadius: BorderRadius.circular(14), border: Border.all(color: sc.border)),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: selectedStatus,
+                              isExpanded: true,
+                              dropdownColor: sc.surface,
+                              icon: Icon(Icons.keyboard_arrow_down_rounded, color: sc.textSecondary),
+                              items: statuses.map((e) => DropdownMenuItem(value: e, child: Text(e.toUpperCase(), style: TextStyle(color: sc.textPrimary)))).toList(),
+                              onChanged: (val) { if (val != null) setSheetState(() => selectedStatus = val); },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _sheetLabel(sc, 'Tanggapan / Penjelasan'),
+                        const SizedBox(height: 8),
+                        _sheetField(sc, replyCtrl, 'Tulis tanggapan untuk pelapor...', maxLines: 4),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: Container(
+                            decoration: BoxDecoration(gradient: sc.accentGradient, borderRadius: BorderRadius.circular(14)),
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                widget.onUpdateStatus(a.id, selectedStatus, replyCtrl.text.trim());
+                              },
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.transparent, shadowColor: Colors.transparent),
+                              child: Text('Simpan Update', style: GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
+      },
     );
   }
 }
