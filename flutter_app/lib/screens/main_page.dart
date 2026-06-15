@@ -23,7 +23,9 @@ String _apiBase() {
 }
 
 class MainPage extends StatefulWidget {
-  const MainPage({super.key});
+  final bool isDark;
+  final VoidCallback onToggleTheme;
+  const MainPage({super.key, required this.isDark, required this.onToggleTheme});
   @override
   State<MainPage> createState() => _MainPageState();
 }
@@ -216,12 +218,23 @@ class _MainPageState extends State<MainPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_initDone) return const Scaffold(body: Center(child: CircularProgressIndicator(color: AppColors.accent)));
+    final c = SwaapColors.of(context);
+    if (!_initDone) return Scaffold(backgroundColor: c.bg, body: Center(child: CircularProgressIndicator(color: c.accent)));
 
-    return Scaffold(
-      backgroundColor: AppColors.bg,
+    final content = Scaffold(
+      backgroundColor: c.bg,
       body: SafeArea(child: _loggedIn ? _dashboard() : LoginScreen(userCtrl: _userCtrl, passCtrl: _passCtrl, busy: _busy, log: _log, onLogin: _login)),
       bottomNavigationBar: _loggedIn ? _buildBottomNav() : null,
+    );
+
+    return Container(
+      color: c.outerBg,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: content,
+        ),
+      ),
     );
   }
 
@@ -234,6 +247,7 @@ class _MainPageState extends State<MainPage> {
   ]);
 
   Widget _header() {
+    final c = SwaapColors.of(context);
     String greeting;
     final hour = DateTime.now().hour;
     if (hour < 12) greeting = 'Selamat Pagi';
@@ -244,65 +258,53 @@ class _MainPageState extends State<MainPage> {
     final displayName = _nama.isNotEmpty ? _nama.split(' ').first : 'Mahasiswa';
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
       decoration: BoxDecoration(
-        gradient: AppColors.headerGradient,
-        border: Border(bottom: BorderSide(color: AppColors.border)),
+        color: c.surface,
+        border: Border(bottom: BorderSide(color: c.border)),
       ),
       child: Row(children: [
-        // Avatar
         Container(
           width: 44, height: 44,
-          decoration: BoxDecoration(
-            gradient: AppColors.accentGradient,
-            borderRadius: BorderRadius.circular(14),
-          ),
+          decoration: BoxDecoration(gradient: c.accentGradient, borderRadius: BorderRadius.circular(14)),
           child: Center(child: Text(displayName[0].toUpperCase(), style: GoogleFonts.sora(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700))),
         ),
         const SizedBox(width: 12),
-        // Greeting
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Text('$greeting 👋', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+          Text('$greeting 👋', style: TextStyle(color: c.textSecondary, fontSize: 12)),
           const SizedBox(height: 2),
-          Text(displayName, style: GoogleFonts.sora(color: AppColors.textPrimary, fontSize: 17, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis),
+          Text(displayName, style: GoogleFonts.sora(color: c.textPrimary, fontSize: 17, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis),
         ])),
         if (_busy)
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent)),
-          ),
+          Padding(padding: const EdgeInsets.only(right: 4), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: c.accent))),
+        // Theme toggle
+        IconButton(
+          icon: Icon(widget.isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded, color: c.textSecondary, size: 20),
+          onPressed: widget.onToggleTheme,
+          tooltip: widget.isDark ? 'Light Mode' : 'Dark Mode',
+        ),
         // Logout
         Container(
-          decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(12)),
-          child: IconButton(icon: Icon(Icons.logout_rounded, color: AppColors.textSecondary, size: 20), onPressed: _busy ? null : _logout, tooltip: 'Logout'),
+          decoration: BoxDecoration(color: c.bg, borderRadius: BorderRadius.circular(12)),
+          child: IconButton(icon: Icon(Icons.logout_rounded, color: c.textSecondary, size: 20), onPressed: _busy ? null : _logout, tooltip: 'Logout'),
         ),
       ]),
     );
   }
 
   Widget _buildBottomNav() {
+    final c = SwaapColors.of(context);
     return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border(top: BorderSide(color: AppColors.border)),
-      ),
+      decoration: BoxDecoration(color: c.surface, border: Border(top: BorderSide(color: c.border))),
       child: NavigationBar(
         height: 70,
         selectedIndex: _tabIndex,
         onDestinationSelected: (i) => setState(() => _tabIndex = i),
         backgroundColor: Colors.transparent,
-        indicatorColor: AppColors.accent.withValues(alpha: 0.15),
+        indicatorColor: c.accent.withValues(alpha: 0.15),
         destinations: [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined, color: AppColors.textSecondary),
-            selectedIcon: Icon(Icons.home_rounded, color: AppColors.accent),
-            label: 'Beranda',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.front_hand_outlined, color: AppColors.textSecondary),
-            selectedIcon: Icon(Icons.front_hand, color: AppColors.accent),
-            label: 'Presensi',
-          ),
+          NavigationDestination(icon: Icon(Icons.home_outlined, color: c.textSecondary), selectedIcon: Icon(Icons.home_rounded, color: c.accent), label: 'Beranda'),
+          NavigationDestination(icon: Icon(Icons.front_hand_outlined, color: c.textSecondary), selectedIcon: Icon(Icons.front_hand, color: c.accent), label: 'Presensi'),
         ],
       ),
     );

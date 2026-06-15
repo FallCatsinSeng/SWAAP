@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../theme/colors.dart';
 
 class GlassCard extends StatelessWidget {
   final Widget child;
@@ -19,6 +20,7 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = SwaapColors.of(context);
     return Container(
       margin: margin ?? const EdgeInsets.only(bottom: 14),
       child: ClipRRect(
@@ -28,11 +30,9 @@ class GlassCard extends StatelessWidget {
           child: Container(
             padding: padding ?? const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: const Color(0xFF1A1D2E).withValues(alpha: 0.7),
+              color: c.cardBlur,
               borderRadius: BorderRadius.circular(borderRadius),
-              border: Border.all(
-                color: borderColor ?? Colors.white.withValues(alpha: 0.08),
-              ),
+              border: Border.all(color: borderColor ?? c.border),
             ),
             child: child,
           ),
