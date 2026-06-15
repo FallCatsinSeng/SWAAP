@@ -16,6 +16,13 @@ type Config struct {
 	CORSOrigins  []string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
+	// Database
+	DBHost    string
+	DBPort    string
+	DBUser    string
+	DBPass    string
+	DBName    string
+	DBSSLMode string
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -26,6 +33,13 @@ func Load() Config {
 		CORSOrigins:  strings.Split(envOr("CORS_ORIGINS", "*"), ","),
 		ReadTimeout:  parseDuration("READ_TIMEOUT", 15*time.Second),
 		WriteTimeout: parseDuration("WRITE_TIMEOUT", 30*time.Second),
+		// Database defaults match docker-compose service name "postgres"
+		DBHost:    envOr("DB_HOST", "postgres"),
+		DBPort:    envOr("DB_PORT", "5432"),
+		DBUser:    envOr("DB_USER", "swaap"),
+		DBPass:    envOr("DB_PASS", "swaap"),
+		DBName:    envOr("DB_NAME", "swaap"),
+		DBSSLMode: envOr("DB_SSLMODE", "disable"),
 	}
 }
 

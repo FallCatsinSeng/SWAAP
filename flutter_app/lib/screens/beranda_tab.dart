@@ -15,11 +15,12 @@ class BerandaTab extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final ZoomInfo Function(String courseName) zoomForCourse;
   final VoidCallback? onGoPresensi;
+  final VoidCallback? onGoAspirai;
 
   const BerandaTab({
     super.key, required this.allItems, required this.filteredItems,
     required this.lastSync, required this.busy, required this.scrollCtrl,
-    required this.onRefresh, required this.zoomForCourse, this.onGoPresensi,
+    required this.onRefresh, required this.zoomForCourse, this.onGoPresensi, this.onGoAspirai,
   });
 
   @override
@@ -39,6 +40,7 @@ class BerandaTab extends StatelessWidget {
     final menus = <_MenuItem>[
       _MenuItem(Icons.calendar_month_rounded, 'Jadwal', c.accent, null),
       _MenuItem(Icons.front_hand_rounded, 'Presensi', c.green, onGoPresensi),
+      _MenuItem(Icons.campaign_rounded, 'Aspirasi', c.orange, onGoAspirai),
     ];
     return GlassCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),

@@ -1,4 +1,35 @@
 services:
+  # ── PostgreSQL Database ────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${DB_NAME:-swaap}"
+      POSTGRES_USER: "${DB_USER:-swaap}"
+      POSTGRES_PASSWORD: "${DB_PASS:-swaap}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    # Security hardening
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-swaap} -d ${DB_NAME:-swaap}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   # ── Go Wrapper API ──────────────────────────────────────────────────────────
   backend:
     build:
@@ -9,6 +40,12 @@ services:
     environment:
       PORT: "8081"
       CORS_ORIGIN: "${CORS_ORIGIN}"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_USER: "${DB_USER:-swaap}"
+      DB_PASS: "${DB_PASS:-swaap}"
+      DB_NAME: "${DB_NAME:-swaap}"
+      DB_SSLMODE: "disable"
     networks:
       - internal
     # Security hardening
@@ -20,6 +57,9 @@ services:
     # Never expose port 8081 to the host — Nginx proxies internally
     expose:
       - "8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ── Flutter Web Frontend (Nginx) ────────────────────────────────────────────
   frontend:
@@ -69,3 +109,6 @@ networks:
   # Must already exist before this stack starts.
   # swu_osr_internal:
   #   external: true
+
+volumes:
+  pgdata:

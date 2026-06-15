@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"swaap/internal/database"
 	"swaap/internal/middleware"
 	"swaap/internal/smartone"
 )
@@ -21,11 +22,12 @@ type Envelope struct {
 // Handler holds shared dependencies for all HTTP handlers.
 type Handler struct {
 	Logger *slog.Logger
+	DB     *database.DB
 }
 
-// New creates a new Handler with the given logger.
-func New(logger *slog.Logger) *Handler {
-	return &Handler{Logger: logger}
+// New creates a new Handler with the given logger and optional database.
+func New(logger *slog.Logger, db *database.DB) *Handler {
+	return &Handler{Logger: logger, DB: db}
 }
 
 // writeJSON encodes v as JSON and writes it to w with the given status code.

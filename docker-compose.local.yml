@@ -1,14 +1,12 @@
 # ============================================================================
-# docker-compose.demo.yml — Alternatif untuk presentasi / demo deploy
-# Tanpa Cloudflare Tunnel, langsung pakai Nginx + Let's Encrypt (Certbot)
+# docker-compose.local.yml — Untuk development/deployment TANPA build Flutter
 #
-# Cara pakai:
-#   1. chmod +x deploy-demo.sh
-#   2. ./deploy-demo.sh
-#   (script akan tanya domain & email, lalu auto jalanin semuanya)
+# Frontend pakai pre-built static files dari flutter build web.
+# Jalankan dulu:
+#   cd flutter_app && flutter build web --release
 #
-# Atau manual:
-#   docker compose -f docker-compose.demo.yml up --build -d
+# Lalu:
+#   docker compose -f docker-compose.local.yml up --build -d
 # ============================================================================
 
 services:
@@ -51,7 +49,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8081"
-      CORS_ORIGIN: "https://${DOMAIN}"
+      CORS_ORIGIN: "${CORS_ORIGIN:-*}"
       DB_HOST: "postgres"
       DB_PORT: "5432"
       DB_USER: "${DB_USER:-swaap}"
@@ -71,15 +69,17 @@ services:
       postgres:
         condition: service_healthy
 
-  # ── Flutter Web Frontend (Internal Nginx) ───────────────────────────────────
+  # ── Frontend: Nginx serving pre-built Flutter Web ───────────────────────────
+  # No Docker build needed! Uses pre-built files from ./flutter_app/build/web
   frontend:
-    build:
-      context: ./flutter_app
-      dockerfile: Dockerfile
-    image: swaap-frontend:latest
+    image: nginxinc/nginx-unprivileged:1.27-alpine
     restart: unless-stopped
+    volumes:
+      - ./flutter_app/build/web:/usr/share/nginx/html:ro
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - internal
+      - public
     cap_drop:
       - ALL
     read_only: true
@@ -89,37 +89,10 @@ services:
       - /var/run
     security_opt:
       - no-new-privileges:true
-    expose:
-      - "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
     depends_on:
       - backend
-
-  # ── Nginx HTTPS Reverse Proxy ───────────────────────────────────────────────
-  nginx-proxy:
-    image: nginx:1.27-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx-proxy/conf.d:/etc/nginx/conf.d:ro
-      - ./certbot/www:/var/www/certbot:ro
-      - ./certbot/conf:/etc/letsencrypt:ro
-    networks:
-      - internal
-      - public
-    depends_on:
-      - frontend
-
-  # ── Certbot (SSL Certificate) ──────────────────────────────────────────────
-  certbot:
-    image: certbot/certbot:latest
-    volumes:
-      - ./certbot/www:/var/www/certbot
-      - ./certbot/conf:/etc/letsencrypt
-    networks:
-      - public
 
 networks:
   internal:
@@ -128,4 +101,3 @@ networks:
 
 volumes:
   pgdata:
-

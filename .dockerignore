@@ -1,0 +1,27 @@
+# Git
+.git
+.gitignore
+
+# Flutter app (backend doesn't need this)
+flutter_app
+
+# Large files
+smartone.tar.gz
+wrapper-api
+
+# Docker files
+docker-compose*.yml
+Dockerfile*
+
+# Docs & misc
+docs
+*.md
+LICENSE
+.env*
+.codex
+deploy-demo.sh
+
+# Nginx (only needed by frontend)
+nginx
+nginx-proxy
+certbot

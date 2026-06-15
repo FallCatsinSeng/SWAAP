@@ -8,11 +8,14 @@ import 'package:http/http.dart' as http;
 import '../models/zoom_info.dart';
 import '../models/jadwal_item.dart';
 import '../models/presensi_course.dart';
+import '../models/aspirasi_model.dart';
 import '../services/cred_store.dart';
+import '../services/aspirasi_service.dart';
 import '../theme/colors.dart';
 import 'login_screen.dart';
 import 'beranda_tab.dart';
 import 'presensi_tab.dart';
+import 'aspirasi_tab.dart';
 
 /// Returns the appropriate API base URL for the current platform.
 String _apiBase() {
@@ -34,18 +37,22 @@ class _MainPageState extends State<MainPage> {
   final _apiCtrl = TextEditingController(text: _apiBase());
   final _baseCtrl = TextEditingController(text: 'https://smartone.smart-service.co.id');
   final _userCtrl = TextEditingController(), _passCtrl = TextEditingController();
-  final _jadwalScroll = ScrollController(), _presensiScroll = ScrollController();
+  final _jadwalScroll = ScrollController(), _presensiScroll = ScrollController(), _aspirasiScroll = ScrollController();
   String _phpsessid = '', _log = 'Memuat...';
   String _nama = '', _nim = '';
-  bool _busyLogin = false, _busyJadwal = false, _busyPresensi = false, _busyAttend = false, _initDone = false;
+  bool _busyLogin = false, _busyJadwal = false, _busyPresensi = false, _busyAttend = false, _busyAspirai = false, _initDone = false;
+  bool _isAdmin = false;
   int _tabIndex = 0;
   DateTime? _lastSync;
   List<JadwalItem> _jadwalItems = [];
   List<PresensiCourse> _presensiCourses = [];
   String _presensiMsg = '';
+  List<Aspirasi> _aspirasiItems = [];
 
   bool get _loggedIn => _phpsessid.isNotEmpty;
-  bool get _busy => _busyLogin || _busyJadwal || _busyPresensi || _busyAttend;
+  bool get _busy => _busyLogin || _busyJadwal || _busyPresensi || _busyAttend || _busyAspirai;
+
+  AspirasiService get _aspirasiService => AspirasiService(apiBase: _apiCtrl.text.trim());
 
   List<JadwalItem> get _filtered {
     final now = DateTime.now();
@@ -75,7 +82,7 @@ class _MainPageState extends State<MainPage> {
   @override
   void dispose() {
     _apiCtrl.dispose(); _baseCtrl.dispose(); _userCtrl.dispose(); _passCtrl.dispose();
-    _jadwalScroll.dispose(); _presensiScroll.dispose();
+    _jadwalScroll.dispose(); _presensiScroll.dispose(); _aspirasiScroll.dispose();
     super.dispose();
   }
 
@@ -121,6 +128,9 @@ class _MainPageState extends State<MainPage> {
       if (s.isNotEmpty) {
         await CredStore.save(user: _userCtrl.text.trim(), pass: _passCtrl.text, base: _baseCtrl.text.trim());
         await _fetchJadwal(); await _fetchPresensi();
+        // After presensi loads NIM, check admin status and load aspirasi
+        _checkAdminStatus();
+        _fetchAspirai();
       }
     } on TimeoutException { setState(() => _log = 'Timeout login.'); }
     catch (e) { setState(() => _log = 'Error: $e'); }
@@ -207,11 +217,80 @@ class _MainPageState extends State<MainPage> {
     finally { setState(() => _busyAttend = false); }
   }
 
+  // ── Aspirasi Methods ──────────────────────────────────────────────────────
+
+  Future<void> _checkAdminStatus() async {
+    if (_nim.isEmpty) return;
+    final admin = await _aspirasiService.checkAdmin(nim: _nim);
+    if (mounted) setState(() => _isAdmin = admin);
+  }
+
+  Future<void> _fetchAspirai() async {
+    setState(() => _busyAspirai = true);
+    try {
+      List<Aspirasi> items;
+      if (_isAdmin && _nim.isNotEmpty) {
+        items = await _aspirasiService.fetchAdminList(nim: _nim);
+      } else {
+        items = await _aspirasiService.fetchList();
+      }
+      if (mounted) setState(() => _aspirasiItems = items);
+    } catch (_) {
+      // Silently fail — aspirasi is not critical
+    } finally {
+      if (mounted) setState(() => _busyAspirai = false);
+    }
+  }
+
+  Future<void> _submitAspirai({
+    required String sasaran,
+    required String kritik,
+    required String saran,
+    required bool isAnonim,
+    required String semester,
+    required String jurusan,
+  }) async {
+    setState(() => _busyAspirai = true);
+    try {
+      final result = await _aspirasiService.submit(
+        nim: _nim,
+        nama: _nama,
+        sasaran: sasaran,
+        kritik: kritik,
+        saran: saran,
+        isAnonim: isAnonim,
+        semester: semester,
+        jurusan: jurusan,
+      );
+      if (mounted) {
+        final ok = result['ok'] == true;
+        final msg = ok
+            ? (result['data']?['message'] ?? 'Berhasil!')
+            : (result['error'] ?? 'Gagal mengirim');
+        final c = SwaapColors.of(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('$msg'),
+          backgroundColor: ok ? c.green : c.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ));
+        if (ok) await _fetchAspirai();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busyAspirai = false);
+    }
+  }
+
   void _logout() async {
     await CredStore.clear();
     setState(() {
       _phpsessid = ''; _jadwalItems = []; _presensiCourses = [];
       _presensiMsg = ''; _lastSync = null; _tabIndex = 0;
+      _aspirasiItems = []; _isAdmin = false;
       _log = 'Session dibersihkan.';
     });
   }
@@ -238,10 +317,26 @@ class _MainPageState extends State<MainPage> {
     );
   }
 
+  void _openAspirasi() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => _AspirasiPage(
+        isDark: widget.isDark,
+        onToggleTheme: widget.onToggleTheme,
+        items: _aspirasiItems,
+        busy: _busyAspirai,
+        isAdmin: _isAdmin,
+        nim: _nim,
+        nama: _nama,
+        onRefresh: _fetchAspirai,
+        onSubmit: _submitAspirai,
+      ),
+    ));
+  }
+
   Widget _dashboard() => Column(children: [
     _header(),
     Expanded(child: IndexedStack(index: _tabIndex, children: [
-      BerandaTab(allItems: _jadwalItems, filteredItems: _filtered, lastSync: _lastSync, busy: _busyJadwal, scrollCtrl: _jadwalScroll, onRefresh: _fetchJadwal, zoomForCourse: _zoomForCourse, onGoPresensi: () => setState(() => _tabIndex = 1)),
+      BerandaTab(allItems: _jadwalItems, filteredItems: _filtered, lastSync: _lastSync, busy: _busyJadwal, scrollCtrl: _jadwalScroll, onRefresh: _fetchJadwal, zoomForCourse: _zoomForCourse, onGoPresensi: () => setState(() => _tabIndex = 1), onGoAspirai: _openAspirasi),
       PresensiTab(courses: _presensiCourses, presensiMsg: _presensiMsg, busyPresensi: _busyPresensi, busyAttend: _busyAttend, scrollCtrl: _presensiScroll, onRefresh: _fetchPresensi, onAttend: _submitAttend),
     ])),
   ]);
@@ -306,6 +401,76 @@ class _MainPageState extends State<MainPage> {
           NavigationDestination(icon: Icon(Icons.home_outlined, color: c.textSecondary), selectedIcon: Icon(Icons.home_rounded, color: c.accent), label: 'Beranda'),
           NavigationDestination(icon: Icon(Icons.front_hand_outlined, color: c.textSecondary), selectedIcon: Icon(Icons.front_hand, color: c.accent), label: 'Presensi'),
         ],
+      ),
+    );
+  }
+}
+
+/// Full-screen Aspirasi page (pushed via Navigator from menu)
+class _AspirasiPage extends StatelessWidget {
+  final bool isDark;
+  final VoidCallback onToggleTheme;
+  final List<Aspirasi> items;
+  final bool busy;
+  final bool isAdmin;
+  final String nim;
+  final String nama;
+  final Future<void> Function() onRefresh;
+  final Future<void> Function({
+    required String sasaran,
+    required String kritik,
+    required String saran,
+    required bool isAnonim,
+    required String semester,
+    required String jurusan,
+  }) onSubmit;
+
+  const _AspirasiPage({
+    required this.isDark,
+    required this.onToggleTheme,
+    required this.items,
+    required this.busy,
+    required this.isAdmin,
+    required this.nim,
+    required this.nama,
+    required this.onRefresh,
+    required this.onSubmit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = SwaapColors.of(context);
+    return Container(
+      color: c.outerBg,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Scaffold(
+            backgroundColor: c.bg,
+            appBar: AppBar(
+              backgroundColor: c.surface,
+              surfaceTintColor: Colors.transparent,
+              leading: IconButton(
+                icon: Icon(Icons.arrow_back_rounded, color: c.textPrimary),
+                onPressed: () => Navigator.pop(context),
+              ),
+              title: Text('Aspirasi & Aduan', style: GoogleFonts.sora(fontSize: 17, fontWeight: FontWeight.w700, color: c.textPrimary)),
+              centerTitle: false,
+            ),
+            body: SafeArea(
+              child: AspirasiTab(
+                items: items,
+                busy: busy,
+                isAdmin: isAdmin,
+                nim: nim,
+                nama: nama,
+                scrollCtrl: ScrollController(),
+                onRefresh: onRefresh,
+                onSubmit: onSubmit,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
