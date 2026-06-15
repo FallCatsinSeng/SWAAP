@@ -13,10 +13,10 @@ import '../services/cred_store.dart';
 
 /// Returns the appropriate API base URL for the current platform.
 String _apiBase() {
-  if (kReleaseMode) return 'https://swaap.mylist.web.id';
-  if (kIsWeb) return 'https://swaap.mylist.web.id';
-  if (defaultTargetPlatform == TargetPlatform.android) return 'https://swaap.mylist.web.id';
-  return 'https://swaap.mylist.web.id';
+  if (kReleaseMode) return 'http://127.0.0.1:8080';
+  if (kIsWeb) return 'http://127.0.0.1:8080';
+  if (defaultTargetPlatform == TargetPlatform.android) return 'http://127.0.0.1:8080';
+  return 'http://127.0.0.1:8080';
 }
 
 class MainPage extends StatefulWidget { const MainPage({super.key}); @override State<MainPage> createState()=>_MainPageState(); }
