@@ -1,0 +1,88 @@
+# ============================================================================
+# docker-compose.demo.yml — Alternatif untuk presentasi / demo deploy
+# Tanpa Cloudflare Tunnel, langsung pakai Nginx + Let's Encrypt (Certbot)
+#
+# Cara pakai:
+#   1. chmod +x deploy-demo.sh
+#   2. ./deploy-demo.sh
+#   (script akan tanya domain & email, lalu auto jalanin semuanya)
+#
+# Atau manual:
+#   docker compose -f docker-compose.demo.yml up --build -d
+# ============================================================================
+
+services:
+  # ── Go Wrapper API ──────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: swaap-backend:latest
+    restart: unless-stopped
+    environment:
+      PORT: "8081"
+      CORS_ORIGIN: "https://${DOMAIN}"
+    networks:
+      - internal
+    cap_drop:
+      - ALL
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "8081"
+
+  # ── Flutter Web Frontend (Internal Nginx) ───────────────────────────────────
+  frontend:
+    build:
+      context: ./flutter_app
+      dockerfile: Dockerfile
+    image: swaap-frontend:latest
+    restart: unless-stopped
+    networks:
+      - internal
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "8080"
+    depends_on:
+      - backend
+
+  # ── Nginx HTTPS Reverse Proxy ───────────────────────────────────────────────
+  nginx-proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-proxy/conf.d:/etc/nginx/conf.d:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    networks:
+      - internal
+      - public
+    depends_on:
+      - frontend
+
+  # ── Certbot (SSL Certificate) ──────────────────────────────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    networks:
+      - public
+
+networks:
+  internal:
+  public:
+    driver: bridge
