@@ -1,222 +1,76 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"swaap/legacy"
+	"swaap/internal/config"
+	"swaap/internal/handler"
+	"swaap/internal/middleware"
 )
 
-type envelope struct {
-	OK    bool        `json:"ok"`
-	Data  interface{} `json:"data,omitempty"`
-	Error string      `json:"error,omitempty"`
-}
-
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8081"
-	}
+	cfg := config.Load()
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: cfg.LogLevel,
+	}))
+
+	h := handler.New(logger)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, envelope{OK: true, Data: map[string]string{"status": "up"}})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true,"data":{"status":"up"}}`))
 	})
-	mux.HandleFunc("/api/login", handleLogin)
-	mux.HandleFunc("/api/menu", handleMenu)
-	mux.HandleFunc("/api/jadwal", handleJadwal)
-	mux.HandleFunc("/api/presensi", handlePresensi)
-	mux.HandleFunc("/api/attend", handleAttend)
+	mux.HandleFunc("/api/login", h.HandleLogin)
+	mux.HandleFunc("/api/menu", h.HandleMenu)
+	mux.HandleFunc("/api/jadwal", h.HandleJadwal)
+	mux.HandleFunc("/api/presensi", h.HandlePresensi)
+	mux.HandleFunc("/api/attend", h.HandleAttend)
+
+	// Apply middleware chain: Recovery (outermost) → Logging → CORS (innermost)
+	wrapped := middleware.Chain(mux,
+		middleware.Recovery(logger),
+		middleware.Logging(logger),
+		middleware.CORS(cfg.CORSOrigins),
+	)
 
 	srv := &http.Server{
-		Addr:              ":" + port,
-		Handler:           withCORS(mux),
-		ReadHeaderTimeout: 10 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           wrapped,
+		ReadHeaderTimeout: cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
 	}
 
-	log.Printf("wrapper api listening on http://127.0.0.1:%s\n", port)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
-	}
-}
+	// Graceful shutdown on SIGINT/SIGTERM
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-func handleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, envelope{OK: false, Error: "method not allowed"})
-		return
-	}
+	go func() {
+		logger.Info("wrapper api starting", "port", cfg.Port, "log_level", cfg.LogLevel.String())
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
 
-	var in legacy.LoginInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: "invalid JSON body"})
-		return
-	}
+	<-ctx.Done()
+	logger.Info("shutting down gracefully...")
 
-	client, err := legacy.NewClient(in.BaseURL, in.Headers)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: err.Error()})
-		return
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("shutdown error", "error", err)
 	}
 
-	res, err := client.Login(r.Context(), in)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, envelope{OK: false, Error: err.Error()})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, envelope{OK: true, Data: res})
-}
-
-func handleMenu(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, envelope{OK: false, Error: "method not allowed"})
-		return
-	}
-
-	var in legacy.MenuInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: "invalid JSON body"})
-		return
-	}
-
-	client, err := legacy.NewClient(in.BaseURL, in.Headers)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: err.Error()})
-		return
-	}
-
-	if in.Ulang == 0 {
-		in.Ulang = 1
-	}
-
-	res, err := client.GetMenu(r.Context(), in)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, envelope{OK: false, Error: err.Error()})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, envelope{OK: true, Data: res})
-}
-
-func handleJadwal(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, envelope{OK: false, Error: "method not allowed"})
-		return
-	}
-
-	var in legacy.JadwalInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: "invalid JSON body"})
-		return
-	}
-
-	client, err := legacy.NewClient(in.BaseURL, in.Headers)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: err.Error()})
-		return
-	}
-
-	in.SkipBootstrap = true
-
-	res, err := client.GetJadwal(r.Context(), in)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, envelope{OK: false, Error: err.Error()})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, envelope{OK: true, Data: res})
-}
-
-func handlePresensi(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, envelope{OK: false, Error: "method not allowed"})
-		return
-	}
-
-	var in legacy.PresensiInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: "invalid JSON body"})
-		return
-	}
-
-	client, err := legacy.NewClient(in.BaseURL, in.Headers)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: err.Error()})
-		return
-	}
-
-	res, err := client.ListPresensi(r.Context(), in)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, envelope{OK: false, Error: err.Error()})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, envelope{OK: true, Data: res})
-}
-
-func handleAttend(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, envelope{OK: false, Error: "method not allowed"})
-		return
-	}
-
-	var in legacy.AttendInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: "invalid JSON body"})
-		return
-	}
-
-	client, err := legacy.NewClient(in.BaseURL, in.Headers)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, envelope{OK: false, Error: err.Error()})
-		return
-	}
-
-	res, err := client.SubmitAttend(r.Context(), in)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, envelope{OK: false, Error: err.Error()})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, envelope{OK: true, Data: res})
-}
-
-func writeJSON(w http.ResponseWriter, status int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		next.ServeHTTP(w, r)
-	})
+	logger.Info("server stopped")
 }
