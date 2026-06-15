@@ -39,7 +39,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8081"
-      CORS_ORIGIN: "${CORS_ORIGIN}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
       DB_HOST: "postgres"
       DB_PORT: "5432"
       DB_USER: "${DB_USER:-swaap}"
