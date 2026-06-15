@@ -31,6 +31,8 @@ services:
     networks:
       - internal
       - public
+    volumes:
+      - ./flutter_app/build/web:/usr/share/nginx/html:ro
     cap_drop:
       - ALL
     read_only: true
@@ -57,7 +59,7 @@ services:
       - public
       # Joined so the tunnel can reach SWU OSR services by hostname
       # (e.g. http://swu-osr-nginx:80) without depending on `docker network connect`.
-      - swu_osr_internal
+      # - swu_osr_internal
 
 networks:
   internal:
@@ -65,5 +67,5 @@ networks:
     driver: bridge
   # External network owned by the SWU_OSR docker compose project.
   # Must already exist before this stack starts.
-  swu_osr_internal:
-    external: true
+  # swu_osr_internal:
+  #   external: true
