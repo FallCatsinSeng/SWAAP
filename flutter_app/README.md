@@ -1,4 +1,4 @@
-# legacy_wrapper_fe
+# SWAAP
 
 A new Flutter project.
 

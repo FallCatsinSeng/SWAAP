@@ -13,9 +13,10 @@ import '../services/cred_store.dart';
 
 /// Returns the appropriate API base URL for the current platform.
 String _apiBase() {
-  if (kIsWeb) return kReleaseMode ? '' : 'http://localhost:8081';
-  if (defaultTargetPlatform == TargetPlatform.android) return 'http://10.0.2.2:8081';
-  return 'http://127.0.0.1:8081';
+  if (kReleaseMode) return 'http://127.0.0.1:8080';
+  if (kIsWeb) return 'http://127.0.0.1:8080';
+  if (defaultTargetPlatform == TargetPlatform.android) return 'http://127.0.0.1:8080';
+  return 'http://127.0.0.1:8080';
 }
 
 class MainPage extends StatefulWidget { const MainPage({super.key}); @override State<MainPage> createState()=>_MainPageState(); }

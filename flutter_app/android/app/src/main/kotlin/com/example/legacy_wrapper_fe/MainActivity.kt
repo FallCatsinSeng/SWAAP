@@ -1,4 +1,4 @@
-package com.example.legacy_wrapper_fe
+package com.example.SWAAP
 
 import io.flutter.embedding.android.FlutterActivity
 
